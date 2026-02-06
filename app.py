@@ -5,31 +5,32 @@ from datetime import date
 st.set_page_config(page_title="Recurring Task Scheduler", layout="wide")
 
 # ---------- Task Renderer ----------
-def render_task(task):
-    name = task["name"]
+def render_task(task, day):
+    # make widget keys unique per task per day (critical fix)
+    key_base = f"{task['name']}_{day}"
 
-    with st.expander(name, expanded=False):
+    with st.expander(task["name"], expanded=False):
 
         tab1, tab2, tab3 = st.tabs(["Info", "Controls", "Difficulty"])
 
-        # ===== INFO TAB =====
+        # ===== TAB 1 — INFO =====
         with tab1:
             df = pd.DataFrame([{
                 "Category": task["category"],
-                "Deadline": task["deadline"],
                 "Duration": task["duration"],
+                "Deadline": task["deadline"],
                 "Recurring": ", ".join(task["days"])
             }])
             st.table(df)
 
-        # ===== CONTROLS TAB =====
+        # ===== TAB 2 — CONTROLS =====
         with tab2:
-            st.checkbox("Mark as done ✅", key=f"{name}_done")
+            st.checkbox("Mark as done ✅", key=f"{key_base}_done")
 
             st.date_input(
                 "Task date",
                 value=task["deadline"],
-                key=f"{name}_date"
+                key=f"{key_base}_date"
             )
 
             c1, c2 = st.columns([1, 3])
@@ -40,22 +41,23 @@ def render_task(task):
                     "",
                     ["Hard", "Soft"],
                     horizontal=True,
-                    key=f"{name}_deadline_type",
+                    key=f"{key_base}_deadline",
                     label_visibility="collapsed"
                 )
 
-        # ===== DIFFICULTY TAB =====
+        # ===== TAB 3 — DIFFICULTY =====
         with tab3:
             s1, s2 = st.columns([3, 2])
 
             with s1:
                 rating = st.slider(
                     "Task Difficulty ⭐",
-                    1, 5, task["difficulty"],
-                    key=f"{name}_slider"
+                    1, 5,
+                    task["difficulty"],
+                    key=f"{key_base}_difficulty"
                 )
 
-            text = {
+            rating_text = {
                 1: "Very Easy",
                 2: "Easy",
                 3: "Average",
@@ -65,11 +67,11 @@ def render_task(task):
 
             with s2:
                 st.markdown(f"### {'⭐'*rating}")
-                st.markdown(f"**{text[rating]}**")
+                st.markdown(f"**{rating_text[rating]}**")
 
 
 # ---------- TASK BUNDLES ----------
-# One bundle → appears on multiple days automatically
+# Define once — appears on multiple days automatically
 
 task_bundles = [
     {
@@ -100,12 +102,12 @@ task_bundles = [
 
 # ---------- Build Day Index ----------
 days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-
 tasks_by_day = {d: [] for d in days}
 
 for task in task_bundles:
     for d in task["days"]:
-        tasks_by_day[d].append(task)
+        if d in tasks_by_day:
+            tasks_by_day[d].append(task)
 
 # ---------- Day Tabs ----------
 tabs = st.tabs(days)
@@ -115,7 +117,7 @@ for i, day in enumerate(days):
         st.header(day)
 
         if not tasks_by_day[day]:
-            st.info("No tasks here yet")
+            st.info("No tasks scheduled")
         else:
             for task in tasks_by_day[day]:
-                render_task(task)
+                render_task(task, day)

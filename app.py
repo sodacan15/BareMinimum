@@ -9,4 +9,6 @@ data = {
 
 df = pd.DataFrame(data)
 
-st.table(df)
+with st.expander("Shows Table"):
+    st.table(df)
+

@@ -21,6 +21,15 @@ def task(row, column, name):
             value=date.today(),
             key=f"{name}_date"
         )
+        deadline_type = st.radio(
+        "Deadline Type:",
+        ["Hard", "Soft"],
+        horizontal=True,
+        key=f"{name}_deadline"
+        )
+
+        st.write("Selected:", deadline_type)
+
 
         # ----- Slider + Text Beside It -----
         col1, col2 = st.columns([3, 2])
@@ -45,6 +54,8 @@ def task(row, column, name):
         with col2:
             st.markdown(f"### {'⭐'*rating}")
             st.markdown(f"**{rating_text[rating]}**")
+
+
 
 
 # ---------- Sample Weekly Data ----------
@@ -75,3 +86,4 @@ for i, day in enumerate(tasks_per_day.keys()):
         st.header(day)
         for row, column, name in tasks_per_day[day]:
             task(row, column, name)
+

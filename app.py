@@ -2,77 +2,82 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
-st.set_page_config(page_title="Recurring Task Scheduler", layout="wide")
+st.set_page_config(page_title="Bundle Task Scheduler", layout="wide")
 
 # ---------- Task Renderer ----------
-def render_task(task, day):
-    # make widget keys unique per task per day (critical fix)
-    key_base = f"{task['name']}_{day}"
+def render_task(task, current_day):
+    days = task["days"]
+    name = task["name"]
 
-    with st.expander(task["name"], expanded=False):
+    with st.expander(name, expanded=False):
 
-        tab1, tab2, tab3 = st.tabs(["Info", "Controls", "Difficulty"])
+        # ---- Info block (shared) ----
+        df = pd.DataFrame([{
+            "Category": task["category"],
+            "Duration": task["duration"],
+            "Recurring": ", ".join(days)
+        }])
+        st.table(df)
 
-        # ===== TAB 1 — INFO =====
-        with tab1:
-            df = pd.DataFrame([{
-                "Category": task["category"],
-                "Duration": task["duration"],
-                "Deadline": task["deadline"],
-                "Recurring": ", ".join(task["days"])
-            }])
-            st.table(df)
+        st.divider()
 
-        # ===== TAB 2 — CONTROLS =====
-        with tab2:
-            st.checkbox("Mark as done ✅", key=f"{key_base}_done")
+        # ---- Per-Day Tabs inside expander ----
+        default_index = days.index(current_day)
+        day_tabs = st.tabs(days)
 
-            st.date_input(
-                "Task date",
-                value=task["deadline"],
-                key=f"{key_base}_date"
-            )
+        for i, day in enumerate(days):
+            key_base = f"{name}_{day}"
 
-            c1, c2 = st.columns([1, 3])
-            with c1:
-                st.markdown("**Deadline Type:**")
-            with c2:
-                st.radio(
-                    "",
-                    ["Hard", "Soft"],
-                    horizontal=True,
-                    key=f"{key_base}_deadline",
-                    label_visibility="collapsed"
+            with day_tabs[i]:
+
+                st.subheader(f"{day} Settings")
+
+                st.checkbox("Mark as done ✅", key=f"{key_base}_done")
+
+                st.date_input(
+                    "Task date",
+                    value=task["deadline"],
+                    key=f"{key_base}_date"
                 )
 
-        # ===== TAB 3 — DIFFICULTY =====
-        with tab3:
-            s1, s2 = st.columns([3, 2])
+                # deadline type inline
+                c1, c2 = st.columns([1, 3])
+                with c1:
+                    st.markdown("**Deadline Type:**")
+                with c2:
+                    st.radio(
+                        "",
+                        ["Hard", "Soft"],
+                        horizontal=True,
+                        key=f"{key_base}_deadline",
+                        label_visibility="collapsed"
+                    )
 
-            with s1:
-                rating = st.slider(
-                    "Task Difficulty ⭐",
-                    1, 5,
-                    task["difficulty"],
-                    key=f"{key_base}_difficulty"
-                )
+                # difficulty slider + label
+                s1, s2 = st.columns([3, 2])
 
-            rating_text = {
-                1: "Very Easy",
-                2: "Easy",
-                3: "Average",
-                4: "Hard",
-                5: "Very Hard"
-            }
+                with s1:
+                    rating = st.slider(
+                        "Difficulty ⭐",
+                        1, 5,
+                        task["difficulty"],
+                        key=f"{key_base}_difficulty"
+                    )
 
-            with s2:
-                st.markdown(f"### {'⭐'*rating}")
-                st.markdown(f"**{rating_text[rating]}**")
+                text = {
+                    1: "Very Easy",
+                    2: "Easy",
+                    3: "Average",
+                    4: "Hard",
+                    5: "Very Hard"
+                }
+
+                with s2:
+                    st.markdown(f"### {'⭐'*rating}")
+                    st.markdown(f"**{text[rating]}**")
 
 
 # ---------- TASK BUNDLES ----------
-# Define once — appears on multiple days automatically
-
 task_bundles = [
     {
         "name": "Algorithm Practice",
@@ -83,26 +88,18 @@ task_bundles = [
         "days": ["Monday", "Wednesday"]
     },
     {
-        "name": "Art Commission Sketch",
+        "name": "Design Sketching",
         "category": "Art",
         "deadline": date(2026, 2, 12),
         "duration": "1.5 hr",
         "difficulty": 3,
         "days": ["Monday"]
-    },
-    {
-        "name": "Backend Refactor",
-        "category": "Project",
-        "deadline": date(2026, 2, 15),
-        "duration": "3 hr",
-        "difficulty": 5,
-        "days": ["Wednesday"]
     }
 ]
 
 # ---------- Build Day Index ----------
-days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-tasks_by_day = {d: [] for d in days}
+week_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+tasks_by_day = {d: [] for d in week_days}
 
 for task in task_bundles:
     for d in task["days"]:
@@ -110,9 +107,9 @@ for task in task_bundles:
             tasks_by_day[d].append(task)
 
 # ---------- Day Tabs ----------
-tabs = st.tabs(days)
+tabs = st.tabs(week_days)
 
-for i, day in enumerate(days):
+for i, day in enumerate(week_days):
     with tabs[i]:
         st.header(day)
 

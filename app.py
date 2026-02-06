@@ -1,18 +1,23 @@
 import streamlit as st
 import pandas as pd
+from datetime import date
 
-# Function to show a task with a checkbox
+# Function to show a task with checkbox and date input
 def task(row, column, name):
     with st.expander(name, expanded=False):
-        # Optional: show task info as a table
+        # Display task info as a table
         df = pd.DataFrame([column], columns=row)
         st.table(df)
 
-        # Example: subtasks as checkboxes
+        # Subtasks as checkboxes
         checked = []
         checked.append(st.checkbox("Subtask 1", key=f"{name}_sub1"))
         checked.append(st.checkbox("Subtask 2", key=f"{name}_sub2"))
-    
+
+        # Date input for this task
+        task_date = st.date_input("Select task date", value=date.today(), key=f"{name}_date")
+        st.write("Selected date:", task_date)
+
 # Sample data for each day
 tasks_per_day = {
     "Monday": [
@@ -32,4 +37,3 @@ for i, day in enumerate(tasks_per_day.keys()):
         st.markdown("<h3>Tasks</h3>", unsafe_allow_html=True)
         for row, column, name in tasks_per_day[day]:
             task(row, column, name)
-

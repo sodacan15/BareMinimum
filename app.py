@@ -17,12 +17,19 @@ def task(row, column, name):
         # Date input for this task
         task_date = st.date_input("Select task date", value=date.today(), key=f"{name}_date")
 
-        rating = st.radio(
-            "Rate this task ⭐",
-            options=[1, 2, 3, 4, 5],
-            format_func=lambda x: "⭐" * x,
-            key=f"{name}_rating"
-        )
+        # 5-star slider rating
+        rating = st.slider("Rate this task ⭐", min_value=1, max_value=5, value=3")
+
+        # Dynamic write-up based on rating
+        rating_text = {
+            1: "Very Easy",
+            2: "Easy",
+            3: "Average",
+            4: "Hard",
+            5: "Very Hard"
+        }
+        st.write("Your rating:", "⭐" * rating, "-", rating_text[rating])
+
 
 # Sample data for each day
 tasks_per_day = {
@@ -43,4 +50,5 @@ for i, day in enumerate(tasks_per_day.keys()):
         st.markdown("<h3>Tasks</h3>", unsafe_allow_html=True)
         for row, column, name in tasks_per_day[day]:
             task(row, column, name)
+
 

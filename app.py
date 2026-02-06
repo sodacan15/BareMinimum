@@ -9,6 +9,7 @@ data = {
 
 df = pd.DataFrame(data)
 
-with st.expander("Shows Table"):
+with st.expander("Task 1<br>Galolo Arc<br>Serve Cunt", expanded=False):
     st.table(df)
+
 

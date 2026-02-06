@@ -1,11 +1,12 @@
 import streamlit as st
-import pandas as pd
 
-# Function to show a task inside an expander
+# Function to show a task with a checkbox
 def task(row, column, name):
-    df = pd.DataFrame([column], columns=row)
     with st.expander(name, expanded=False):
-        st.table(df)
+        # Create checkboxes for each column (like task attributes)
+        checked = st.checkbox(f"✅ {column[0]}")  # Just the task name as checkbox
+        # Show additional info if you want
+        st.write({row[i]: column[i] for i in range(1, len(row))})
 
 # Sample data for each day
 tasks_per_day = {
@@ -14,15 +15,6 @@ tasks_per_day = {
     ],
     "Tuesday": [
         (["Task Name", "Priority Value", "Duration"], ["Bulbasaur Smoothie", "45", "2 hrs"], "Leaf Quest")
-    ],
-    "Wednesday": [
-        (["Task Name", "Priority Value", "Duration"], ["Squirtle Splash", "80", "1.5 hrs"], "Water Fun")
-    ],
-    "Thursday": [
-        (["Task Name", "Priority Value", "Duration"], ["Jigglypuff Nap", "20", "3 hrs"], "Sleepy Time")
-    ],
-    "Friday": [
-        (["Task Name", "Priority Value", "Duration"], ["Eevee Party", "55", "2 hrs"], "Weekend Prep")
     ]
 }
 

@@ -7,13 +7,17 @@ st.set_page_config(page_title="Recurring Task Scheduler", layout="wide")
 st.title("📅 Recurring Task Scheduler")
 
 # ---------- Task Renderer ----------
-def render_task(task, current_day):
+def render_task(task, current_day, task_index):
     """
     Renders a single task with an expander.
     Inside the expander, there is a tab per scheduled day.
+    task_index is added to ensure unique keys across the entire app.
     """
     days = task["days"]
     name = task["name"]
+    
+    # Create unique expander key based on task index and current day
+    expander_key = f"exp_{task_index}_{current_day}"
     
     with st.expander(name, expanded=False):
         # ---- Shared Info Table ----
@@ -26,11 +30,12 @@ def render_task(task, current_day):
         st.divider()
         
         # ---- Inner Tabs for Each Scheduled Day ----
-        # Create inner tabs (note: streamlit doesn't support default tab selection)
+        # Create inner tabs
         inner_tabs = st.tabs(days)
         
         for i, day in enumerate(days):
-            key_base = f"{name}_{day}"  # unique key per task per day
+            # Make key unique by including task_index and current_day context
+            key_base = f"t{task_index}_{current_day}_{day}"
             
             with inner_tabs[i]:
                 st.subheader(f"{day} Settings")
@@ -105,10 +110,11 @@ task_bundles = [
 week_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 tasks_by_day = {d: [] for d in week_days}
 
-for task in task_bundles:
+# Store tasks with their original index for unique keying
+for idx, task in enumerate(task_bundles):
     for d in task["days"]:
         if d in tasks_by_day:
-            tasks_by_day[d].append(task)
+            tasks_by_day[d].append((idx, task))  # Store tuple of (index, task)
 
 # ---------- Render Week Tabs ----------
 st.divider()
@@ -120,5 +126,5 @@ for i, day in enumerate(week_days):
         if not tasks_by_day[day]:
             st.info("No tasks scheduled for this day")
         else:
-            for task in tasks_by_day[day]:
-                render_task(task, day)
+            for task_idx, task in tasks_by_day[day]:
+                render_task(task, day, task_idx)

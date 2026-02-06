@@ -3,10 +3,9 @@ import streamlit as st
 # Function to show a task with a checkbox
 def task(row, column, name):
     with st.expander(name, expanded=False):
-        # Create checkboxes for each column (like task attributes)
-        checked = st.checkbox(f"✅ {column[0]}")  # Just the task name as checkbox
-        # Show additional info if you want
-        st.write({row[i]: column[i] for i in range(1, len(row))})
+         df = pd.DataFrame([column], columns=row)
+        checked = [] 
+        checked.append(st.checkbox("Subtask 1"))
 
 # Sample data for each day
 tasks_per_day = {
@@ -27,3 +26,4 @@ for i, day in enumerate(tasks_per_day.keys()):
         st.markdown("<h3>Tasks</h3>", unsafe_allow_html=True)
         for row, column, name in tasks_per_day[day]:
             task(row, column, name)
+

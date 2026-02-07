@@ -1,9 +1,10 @@
 import streamlit as st
-from datetime import time
+from datetime import time, datetime
 import sys
 sys.path.append('.')
 
 from dataStruct import Task, subTask, week
+import functions as fn  # Import backend functions
 
 st.set_page_config(page_title="BareMinimum", layout="wide", initial_sidebar_state="expanded")
 
@@ -85,26 +86,30 @@ TIME_FRAMES_REVERSE = {v: k for k, v in TIME_FRAMES.items()}
 
 # Initialize
 if 'week_instance' not in st.session_state:
-    st.session_state.week_instance = week()
-    sample = Task()
-    sample.setValue("taskName", "TASK 1")
-    sample.setValue("taskDifficulty", 4)
-    sample.setValue("taskDeadline", 1)
-    sample.setValue("timeStart", 540)
-    sample.setValue("timeEnd", 1020)
-    sample.setValue("eventTag", 4)
-    sample.setValue("timeFrame", 4)
-    sample.setValue("day", "Monday")
-    sample.addSubTask(subTask("Plan", False))
-    sample.addSubTask(subTask("Code", False))
-    sample.setPriority()
-    st.session_state.week_instance.Monday.addTask(sample)
-    st.session_state.week_instance.organizeWeek()
+    # Try to load from JSON, otherwise create sample
+    loaded_week = fn.load_tasks()
+    if not any(day.tasks for day in loaded_week.days):
+        # No tasks loaded, create sample
+        sample = Task()
+        sample.setValue("taskName", "TASK 1")
+        sample.setValue("taskDifficulty", 4)
+        sample.setValue("taskDeadline", 1)
+        sample.setValue("timeStart", 540)
+        sample.setValue("timeEnd", 1020)
+        sample.setValue("eventTag", 4)
+        sample.setValue("timeFrame", 4)
+        sample.setValue("day", "Monday")
+        sample.addSubTask(subTask("Plan", False))
+        sample.addSubTask(subTask("Code", False))
+        sample.setPriority()
+        loaded_week.Monday.addTask(sample)
+        loaded_week.organizeWeek()
+    st.session_state.week_instance = loaded_week
 
 if 'task_notes' not in st.session_state:
-    st.session_state.task_notes = {}
+    st.session_state.task_notes = fn.load_notes()
 if 'task_recurrences' not in st.session_state:
-    st.session_state.task_recurrences = {}
+    st.session_state.task_recurrences = fn.load_recurrences()
 if 'current_view' not in st.session_state:
     st.session_state.current_view = 'planner'
 if 'selected_task' not in st.session_state:
@@ -112,10 +117,11 @@ if 'selected_task' not in st.session_state:
 if 'selected_day' not in st.session_state:
     st.session_state.selected_day = None
 if 'shortcuts' not in st.session_state:
-    st.session_state.shortcuts = [
-        {"name": "Google Drive", "url": "https://drive.google.com"},
-        {"name": "Gmail", "url": "https://gmail.com"},
-    ]
+    st.session_state.shortcuts = fn.load_shortcuts()
+if 'handbook_notes' not in st.session_state:
+    st.session_state.handbook_notes = fn.load_handbook_notes()
+if 'auto_save' not in st.session_state:
+    st.session_state.auto_save = True
 
 # Helpers
 def mins_to_time(minutes):
@@ -135,6 +141,10 @@ def add_new_task(day_obj):
     new_task.setPriority()
     day_obj.addTask(new_task)
     st.session_state.week_instance.organizeWeek()
+    # Auto-save to JSON
+    if st.session_state.auto_save:
+        fn.save_tasks(st.session_state.week_instance)
+        fn.save_recurrences(st.session_state.task_recurrences)
 
 def add_recurrence(task_name, day_name):
     if task_name not in st.session_state.task_recurrences:
@@ -169,6 +179,11 @@ def add_recurrence(task_name, day_name):
             new_task.setPriority()
             st.session_state.week_instance.addTaskToDay(new_task, day_name)
             st.session_state.week_instance.organizeWeek()
+            
+            # Auto-save to JSON
+            if st.session_state.auto_save:
+                fn.save_tasks(st.session_state.week_instance)
+                fn.save_recurrences(st.session_state.task_recurrences)
 
 def remove_recurrence(task_name, day_name):
     if task_name in st.session_state.task_recurrences:
@@ -183,6 +198,11 @@ def remove_recurrence(task_name, day_name):
                             break
             
             st.session_state.week_instance.organizeWeek()
+            
+            # Auto-save to JSON
+            if st.session_state.auto_save:
+                fn.save_tasks(st.session_state.week_instance)
+                fn.save_recurrences(st.session_state.task_recurrences)
 
 def get_recurrence_days(task_name):
     if task_name not in st.session_state.task_recurrences:
@@ -205,6 +225,12 @@ def delete_task(task_name):
     if task_name in st.session_state.task_notes:
         del st.session_state.task_notes[task_name]
     st.session_state.week_instance.organizeWeek()
+    
+    # Auto-save to JSON
+    if st.session_state.auto_save:
+        fn.save_tasks(st.session_state.week_instance)
+        fn.save_recurrences(st.session_state.task_recurrences)
+        fn.save_notes(st.session_state.task_notes)
 
 # Compact task renderer - clickable list item
 def render_task_item(task, day_obj, current_day):
@@ -379,7 +405,11 @@ def render_task_detail(task, day_obj):
     with c1:
         if st.button("Save", key=f"save_{task_key}", use_container_width=True):
             st.session_state.week_instance.organizeWeek()
-            st.success("Saved")
+            # Save to JSON
+            fn.save_tasks(st.session_state.week_instance)
+            fn.save_notes(st.session_state.task_notes)
+            fn.save_recurrences(st.session_state.task_recurrences)
+            st.success("Saved to database!")
     with c2:
         if st.button("Cancel", key=f"cancel_{task_key}", use_container_width=True):
             st.session_state.selected_task = None
@@ -404,6 +434,39 @@ with st.sidebar:
     if st.button("Progress"):
         st.session_state.current_view = 'progress'
         st.rerun()
+    
+    st.divider()
+    st.markdown("**Data**")
+    
+    # Manual save button
+    if st.button("💾 Save All", use_container_width=True):
+        fn.save_tasks(st.session_state.week_instance)
+        fn.save_notes(st.session_state.task_notes)
+        fn.save_recurrences(st.session_state.task_recurrences)
+        fn.save_shortcuts(st.session_state.shortcuts)
+        fn.save_handbook_notes(st.session_state.handbook_notes)
+        st.success("Saved!")
+    
+    # Export button
+    if st.button("📄 Export", use_container_width=True):
+        export_text = fn.export_to_text()
+        st.download_button(
+            label="Download .txt",
+            data=export_text,
+            file_name=f"bareminimum_export_{datetime.now().strftime('%Y%m%d')}.txt",
+            mime="text/plain",
+            key="download_export"
+        )
+    
+    # Backup button
+    if st.button("🔄 Backup", use_container_width=True):
+        backup_dir = fn.create_backup()
+        st.success(f"Backup created!")
+    
+    # Auto-save toggle
+    auto_save = st.checkbox("Auto-save", value=st.session_state.auto_save, key="auto_save_toggle")
+    if auto_save != st.session_state.auto_save:
+        st.session_state.auto_save = auto_save
 
 # Main views
 if st.session_state.current_view == 'planner':
@@ -477,16 +540,23 @@ elif st.session_state.current_view == 'handbook':
         st.markdown('<div class="label-text">DOCS</div>', unsafe_allow_html=True)
         
         # Display existing shortcuts
+        to_delete = None
         for idx, shortcut in enumerate(st.session_state.shortcuts):
             c1, c2, c3 = st.columns([3, 1, 1])
             with c1:
                 st.text(shortcut["name"])
             with c2:
                 if st.button("Link", key=f"link_{idx}", use_container_width=True):
-                    st.write(f"Open: {shortcut['url']}")
+                    st.markdown(f"[Open {shortcut['name']}]({shortcut['url']})")
             with c3:
-                if st.button("Edit", key=f"edit_{idx}", use_container_width=True):
-                    st.info("Edit mode")
+                if st.button("Delete", key=f"del_shortcut_{idx}", use_container_width=True):
+                    to_delete = idx
+        
+        # Delete shortcut if requested
+        if to_delete is not None:
+            fn.delete_shortcut(to_delete)
+            st.session_state.shortcuts = fn.load_shortcuts()
+            st.rerun()
         
         st.divider()
         
@@ -496,12 +566,19 @@ elif st.session_state.current_view == 'handbook':
             new_url = st.text_input("URL", key="new_shortcut_url")
             if st.button("Add", key="add_shortcut_btn"):
                 if new_name and new_url:
-                    st.session_state.shortcuts.append({"name": new_name, "url": new_url})
+                    fn.add_shortcut(new_name, new_url)
+                    st.session_state.shortcuts = fn.load_shortcuts()
                     st.rerun()
     
     with handbook_tabs[1]:
         st.markdown('<div class="label-text">NOTEPAD</div>', unsafe_allow_html=True)
-        st.text_area("", height=400, placeholder="Notes...", key="notepad", label_visibility="collapsed")
+        notes = st.text_area("", height=400, value=st.session_state.handbook_notes, 
+                            placeholder="Notes...", key="notepad", label_visibility="collapsed")
+        
+        # Save notes if changed
+        if notes != st.session_state.handbook_notes:
+            st.session_state.handbook_notes = notes
+            fn.save_handbook_notes(notes)
 
 elif st.session_state.current_view == 'progress':
     total_tasks = sum(len(d.tasks) for d in st.session_state.week_instance.days)

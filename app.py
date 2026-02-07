@@ -105,6 +105,15 @@ if 'task_notes' not in st.session_state:
     st.session_state.task_notes = {}
 if 'current_view' not in st.session_state:
     st.session_state.current_view = 'planner'
+if 'selected_task' not in st.session_state:
+    st.session_state.selected_task = None
+if 'selected_day' not in st.session_state:
+    st.session_state.selected_day = None
+if 'shortcuts' not in st.session_state:
+    st.session_state.shortcuts = [
+        {"name": "Google Drive", "url": "https://drive.google.com"},
+        {"name": "Gmail", "url": "https://gmail.com"},
+    ]
 
 # Helpers
 def mins_to_time(minutes):
@@ -134,95 +143,96 @@ def delete_task(task_name):
         del st.session_state.task_notes[task_name]
     st.session_state.week_instance.organizeWeek()
 
-# Compact task renderer
-def render_task(task, day_obj, current_day):
+# Compact task renderer - clickable list item
+def render_task_item(task, day_obj, current_day):
+    task_key = get_task_key(task)
+    
+    # Simple clickable task item
+    if st.button(f"{task.taskName} >", key=f"select_{task_key}_{current_day}", use_container_width=True):
+        st.session_state.selected_task = task_key
+        st.session_state.selected_day = current_day
+        st.rerun()
+
+# Task detail panel (right side)
+def render_task_detail(task, day_obj):
     task_key = get_task_key(task)
     
     if task_key not in st.session_state.task_notes:
         st.session_state.task_notes[task_key] = ""
     
-    with st.expander(f"{task.taskName}", expanded=False):
-        # Name
-        st.markdown('<div class="label-text">NAME</div>', unsafe_allow_html=True)
-        task.setValue("taskName", st.text_input(
-            "n", task.taskName, key=f"n_{task_key}_{id(task)}", label_visibility="collapsed"
-        ))
-        
-        # Deadline type
-        c1, c2 = st.columns(2)
-        with c1:
-            hard = st.checkbox("Hard", task.taskDeadline == 1, key=f"h_{task_key}_{id(task)}")
-            task.setValue("taskDeadline", 1 if hard else 0)
-        with c2:
-            soft = st.checkbox("Soft", task.taskDeadline == 0, key=f"s_{task_key}_{id(task)}", disabled=True)
-        
-        # Time
-        st.markdown('<div class="label-text">TIME</div>', unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        with c1:
-            tin = st.time_input("In", mins_to_time(task.timeStart), key=f"ti_{task_key}_{id(task)}", label_visibility="collapsed")
-            task.setValue("timeStart", time_to_mins(tin))
-        with c2:
-            tout = st.time_input("Out", mins_to_time(task.timeEnd), key=f"to_{task_key}_{id(task)}", label_visibility="collapsed")
-            task.setValue("timeEnd", time_to_mins(tout))
-        
-        dur = task.taskDuration
-        st.text(f"DURATION: {dur//60}h {dur%60}m")
-        
-        st.divider()
-        
-        # Subtasks
-        st.markdown('<div class="label-text">SUBTASKS</div>', unsafe_allow_html=True)
-        st.progress(task.getProgress() / 100)
-        
-        to_remove = []
-        for i, sub in enumerate(task.subTasks):
-            c1, c2, c3 = st.columns([1, 7, 1])
-            with c1:
-                done = st.checkbox("c", sub.status, key=f"sd_{task_key}_{i}_{id(task)}", label_visibility="collapsed")
-                if done != sub.status:
-                    sub.markDone() if done else sub.markUndone()
-            with c2:
-                new = st.text_input("t", sub.name, key=f"st_{task_key}_{i}_{id(task)}", label_visibility="collapsed")
-                if new != sub.name:
-                    sub.name = new
-            with c3:
-                if st.button("×", key=f"ds_{task_key}_{i}_{id(task)}"):
-                    to_remove.append(sub)
-        
-        for sub in to_remove:
-            task.removeSubTask(sub)
-        
-        if st.button("+ SUBTASK", key=f"as_{task_key}_{id(task)}", use_container_width=True):
-            task.addSubTask(subTask("New", False))
+    st.markdown(f"### TASK")
+    
+    # Instance with day tabs
+    st.markdown('<div class="label-text">Instance</div>', unsafe_allow_html=True)
+    
+    # Get all days this task appears on (for now just current day)
+    task_days = [day_obj.name]
+    
+    # Day selector tabs (MON, WED, + button)
+    day_tabs_display = [d[:3].upper() for d in task_days] + ["+"]
+    selected_instance = st.radio("", day_tabs_display, horizontal=True, key=f"instance_{task_key}", label_visibility="collapsed")
+    
+    st.divider()
+    
+    # Settings expander
+    with st.expander("SETTINGS", expanded=True):
+        st.markdown('<div class="label-text">• Basic Information</div>', unsafe_allow_html=True)
+        st.markdown('<div class="label-text">• Subtasks</div>', unsafe_allow_html=True)
+        st.markdown('<div class="label-text">• Task Config</div>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Name
+    st.markdown('<div class="label-text">NAME</div>', unsafe_allow_html=True)
+    task.setValue("taskName", st.text_input(
+        "n", task.taskName, key=f"n_{task_key}_{id(task)}", label_visibility="collapsed"
+    ))
+    
+    # Deadline type
+    st.markdown('<div class="label-text">Deadline Type</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        hard = st.radio("dt", ["Hard", "Soft"], index=0 if task.taskDeadline == 1 else 1, key=f"deadline_{task_key}_{id(task)}", label_visibility="collapsed", horizontal=True)
+        task.setValue("taskDeadline", 1 if hard == "Hard" else 0)
+    
+    # Time
+    st.markdown('<div class="label-text">TIME IN / TIME OUT</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        tin = st.time_input("In", mins_to_time(task.timeStart), key=f"ti_{task_key}_{id(task)}", label_visibility="collapsed")
+        task.setValue("timeStart", time_to_mins(tin))
+    with c2:
+        tout = st.time_input("Out", mins_to_time(task.timeEnd), key=f"to_{task_key}_{id(task)}", label_visibility="collapsed")
+        task.setValue("timeEnd", time_to_mins(tout))
+    
+    dur = task.taskDuration
+    st.markdown(f"**DURATION: {dur//60}h {dur%60}m**")
+    
+    st.divider()
+    
+    # Notes
+    st.markdown('<div class="label-text">NOTES</div>', unsafe_allow_html=True)
+    st.session_state.task_notes[task_key] = st.text_area(
+        "notes", st.session_state.task_notes[task_key], height=100,
+        key=f"nt_{task_key}_{id(task)}", label_visibility="collapsed",
+        placeholder="Notes..."
+    )
+    
+    st.divider()
+    
+    # Action buttons
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("Save", key=f"save_{task_key}", use_container_width=True):
+            st.success("Saved")
+    with c2:
+        if st.button("Cancel", key=f"cancel_{task_key}", use_container_width=True):
+            st.session_state.selected_task = None
             st.rerun()
-        
-        st.divider()
-        
-        # Notes
-        st.markdown('<div class="label-text">NOTES</div>', unsafe_allow_html=True)
-        st.session_state.task_notes[task_key] = st.text_area(
-            "notes", st.session_state.task_notes[task_key], height=80,
-            key=f"nt_{task_key}_{id(task)}", label_visibility="collapsed",
-            placeholder="Notes..."
-        )
-        
-        # Settings (foldable)
-        with st.expander("SETTINGS", expanded=False):
-            st.markdown('<div class="label-text">BASIC INFORMATION</div>', unsafe_allow_html=True)
-            event = st.selectbox(
-                "Type", ['Event', 'Assignment', 'Task', 'Chore'],
-                index=['Event', 'Assignment', 'Task', 'Chore'].index(EVENT_TAGS.get(task.eventTag, "Task")),
-                key=f"et_{task_key}_{id(task)}"
-            )
-            task.setValue("eventTag", EVENT_TAGS_REVERSE[event])
-            
-            st.markdown('<div class="label-text">TASK CONFIG</div>', unsafe_allow_html=True)
-            diff = st.slider("Difficulty", 1, 5, task.taskDifficulty, key=f"df_{task_key}_{id(task)}")
-            task.setValue("taskDifficulty", diff)
-        
-        if st.button("DELETE", key=f"del_{task_key}_{id(task)}", use_container_width=True):
+    with c3:
+        if st.button("Delete", key=f"del_{task_key}", use_container_width=True):
             delete_task(task_key)
+            st.session_state.selected_task = None
             st.rerun()
 
 # Sidebar
@@ -242,50 +252,97 @@ with st.sidebar:
 
 # Main views
 if st.session_state.current_view == 'planner':
-    # Week tabs at top
-    days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-    days_full = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    tabs = st.tabs(days)
+    # Two-column layout: Task list | Task detail
+    col_list, col_detail = st.columns([1, 1])
     
-    for i, (day_short, day_full) in enumerate(zip(days, days_full)):
-        day_obj = st.session_state.week_instance.days[i]
+    with col_list:
+        # Week tabs at top
+        days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+        days_full = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        tabs = st.tabs(days)
         
-        with tabs[i]:
-            # Sort by selector (compact)
-            st.markdown('<div class="label-text">> SORT BY</div>', unsafe_allow_html=True)
+        for i, (day_short, day_full) in enumerate(zip(days, days_full)):
+            day_obj = st.session_state.week_instance.days[i]
             
-            # Priority sections
-            if day_obj.highPriority:
-                st.markdown("**High Priority**")
-                for task in day_obj.highPriority:
-                    render_task(task, day_obj, day_full)
+            with tabs[i]:
+                # Sort by selector (compact)
+                st.markdown('<div class="label-text">> Sort By</div>', unsafe_allow_html=True)
+                
+                # Priority sections
+                if day_obj.highPriority:
+                    st.markdown("**High Priority**")
+                    for task in day_obj.highPriority:
+                        render_task_item(task, day_obj, day_full)
+                
+                if day_obj.mediumPriority:
+                    st.markdown("**Medium Priority**")
+                    for task in day_obj.mediumPriority:
+                        render_task_item(task, day_obj, day_full)
+                
+                if day_obj.smallPriority:
+                    st.markdown("**Low Priority**")
+                    for task in day_obj.smallPriority:
+                        render_task_item(task, day_obj, day_full)
+                
+                if not day_obj.tasks:
+                    st.info("No tasks")
+                
+                st.divider()
+                if st.button(f"+ ADD TO {day_short}", key=f"add_{day_full}", use_container_width=True):
+                    add_new_task(day_obj)
+                    st.rerun()
+    
+    with col_detail:
+        # Show selected task detail
+        if st.session_state.selected_task:
+            # Find the selected task
+            selected_task = None
+            selected_day_obj = None
             
-            if day_obj.mediumPriority:
-                st.markdown("**Medium Priority**")
-                for task in day_obj.mediumPriority:
-                    render_task(task, day_obj, day_full)
+            for day in st.session_state.week_instance.days:
+                for task in day.tasks:
+                    if get_task_key(task) == st.session_state.selected_task:
+                        selected_task = task
+                        selected_day_obj = day
+                        break
+                if selected_task:
+                    break
             
-            if day_obj.smallPriority:
-                st.markdown("**Low Priority**")
-                for task in day_obj.smallPriority:
-                    render_task(task, day_obj, day_full)
-            
-            if not day_obj.tasks:
-                st.info("No tasks")
-            
-            st.divider()
-            if st.button(f"+ ADD TO {day_short}", key=f"add_{day_full}", use_container_width=True):
-                add_new_task(day_obj)
-                st.rerun()
+            if selected_task:
+                render_task_detail(selected_task, selected_day_obj)
+            else:
+                st.info("Select a task to view details")
+        else:
+            st.info("Select a task to view details")
 
 elif st.session_state.current_view == 'handbook':
     handbook_tabs = st.tabs(["SHORTCUTS", "REMINDERS"])
     
     with handbook_tabs[0]:
         st.markdown('<div class="label-text">DOCS</div>', unsafe_allow_html=True)
-        st.text_area("", height=300, placeholder="Links and shortcuts...", key="shortcuts", label_visibility="collapsed")
-        if st.button("LINK"):
-            st.info("Add link")
+        
+        # Display existing shortcuts
+        for idx, shortcut in enumerate(st.session_state.shortcuts):
+            c1, c2, c3 = st.columns([3, 1, 1])
+            with c1:
+                st.text(shortcut["name"])
+            with c2:
+                if st.button("Link", key=f"link_{idx}", use_container_width=True):
+                    st.write(f"Open: {shortcut['url']}")
+            with c3:
+                if st.button("Edit", key=f"edit_{idx}", use_container_width=True):
+                    st.info("Edit mode")
+        
+        st.divider()
+        
+        # Add new shortcut
+        with st.expander("+ Add Shortcut", expanded=False):
+            new_name = st.text_input("Name", key="new_shortcut_name")
+            new_url = st.text_input("URL", key="new_shortcut_url")
+            if st.button("Add", key="add_shortcut_btn"):
+                if new_name and new_url:
+                    st.session_state.shortcuts.append({"name": new_name, "url": new_url})
+                    st.rerun()
     
     with handbook_tabs[1]:
         st.markdown('<div class="label-text">NOTEPAD</div>', unsafe_allow_html=True)

@@ -103,6 +103,8 @@ if 'week_instance' not in st.session_state:
 
 if 'task_notes' not in st.session_state:
     st.session_state.task_notes = {}
+if 'task_recurrences' not in st.session_state:
+    st.session_state.task_recurrences = {}
 if 'current_view' not in st.session_state:
     st.session_state.current_view = 'planner'
 if 'selected_task' not in st.session_state:
@@ -134,11 +136,72 @@ def add_new_task(day_obj):
     day_obj.addTask(new_task)
     st.session_state.week_instance.organizeWeek()
 
+def add_recurrence(task_name, day_name):
+    if task_name not in st.session_state.task_recurrences:
+        st.session_state.task_recurrences[task_name] = []
+    
+    if day_name not in st.session_state.task_recurrences[task_name]:
+        st.session_state.task_recurrences[task_name].append(day_name)
+        
+        original = None
+        for day in st.session_state.week_instance.days:
+            for task in day.tasks:
+                if task.taskName == task_name:
+                    original = task
+                    break
+            if original:
+                break
+        
+        if original:
+            new_task = Task()
+            new_task.setValue("taskName", original.taskName)
+            new_task.setValue("taskDifficulty", original.taskDifficulty)
+            new_task.setValue("taskDeadline", original.taskDeadline)
+            new_task.setValue("timeStart", original.timeStart)
+            new_task.setValue("timeEnd", original.timeEnd)
+            new_task.setValue("eventTag", original.eventTag)
+            new_task.setValue("timeFrame", original.timeFrame)
+            new_task.setValue("day", day_name)
+            
+            for subtask in original.subTasks:
+                new_task.addSubTask(subTask(subtask.name, subtask.status))
+            
+            new_task.setPriority()
+            st.session_state.week_instance.addTaskToDay(new_task, day_name)
+            st.session_state.week_instance.organizeWeek()
+
+def remove_recurrence(task_name, day_name):
+    if task_name in st.session_state.task_recurrences:
+        if day_name in st.session_state.task_recurrences[task_name]:
+            st.session_state.task_recurrences[task_name].remove(day_name)
+            
+            for day in st.session_state.week_instance.days:
+                if day.name == day_name:
+                    for task in day.tasks[:]:
+                        if task.taskName == task_name:
+                            day.removeTask(task)
+                            break
+            
+            st.session_state.week_instance.organizeWeek()
+
+def get_recurrence_days(task_name):
+    if task_name not in st.session_state.task_recurrences:
+        st.session_state.task_recurrences[task_name] = []
+        for day in st.session_state.week_instance.days:
+            for task in day.tasks:
+                if task.taskName == task_name:
+                    if day.name not in st.session_state.task_recurrences[task_name]:
+                        st.session_state.task_recurrences[task_name].append(day.name)
+    
+    return st.session_state.task_recurrences[task_name]
+
 def delete_task(task_name):
     for day in st.session_state.week_instance.days:
         for task in day.tasks[:]:
             if task.taskName == task_name:
                 day.removeTask(task)
+    if task_name in st.session_state.task_recurrences:
+        del st.session_state.task_recurrences[task_name]
     if task_name in st.session_state.task_notes:
         del st.session_state.task_notes[task_name]
     st.session_state.week_instance.organizeWeek()
@@ -160,77 +223,174 @@ def render_task_detail(task, day_obj):
     if task_key not in st.session_state.task_notes:
         st.session_state.task_notes[task_key] = ""
     
+    recurrence_days = get_recurrence_days(task_key)
+    
     st.markdown(f"### TASK")
     
     # Instance with day tabs
     st.markdown('<div class="label-text">Instance</div>', unsafe_allow_html=True)
     
-    # Get all days this task appears on (for now just current day)
-    task_days = [day_obj.name]
+    # Show existing instances + add button
+    all_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    available_days = [d for d in all_days if d not in recurrence_days]
     
-    # Day selector tabs (MON, WED, + button)
-    day_tabs_display = [d[:3].upper() for d in task_days] + ["+"]
-    selected_instance = st.radio("", day_tabs_display, horizontal=True, key=f"instance_{task_key}", label_visibility="collapsed")
+    # Day tabs with + button
+    day_tabs_display = [d[:3].upper() for d in recurrence_days]
     
-    st.divider()
-    
-    # Settings expander
-    with st.expander("SETTINGS", expanded=True):
-        st.markdown('<div class="label-text">• Basic Information</div>', unsafe_allow_html=True)
-        st.markdown('<div class="label-text">• Subtasks</div>', unsafe_allow_html=True)
-        st.markdown('<div class="label-text">• Task Config</div>', unsafe_allow_html=True)
-    
-    st.divider()
-    
-    # Name
-    st.markdown('<div class="label-text">NAME</div>', unsafe_allow_html=True)
-    task.setValue("taskName", st.text_input(
-        "n", task.taskName, key=f"n_{task_key}_{id(task)}", label_visibility="collapsed"
-    ))
-    
-    # Deadline type
-    st.markdown('<div class="label-text">Deadline Type</div>', unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        hard = st.radio("dt", ["Hard", "Soft"], index=0 if task.taskDeadline == 1 else 1, key=f"deadline_{task_key}_{id(task)}", label_visibility="collapsed", horizontal=True)
-        task.setValue("taskDeadline", 1 if hard == "Hard" else 0)
-    
-    # Time
-    st.markdown('<div class="label-text">TIME IN / TIME OUT</div>', unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        tin = st.time_input("In", mins_to_time(task.timeStart), key=f"ti_{task_key}_{id(task)}", label_visibility="collapsed")
-        task.setValue("timeStart", time_to_mins(tin))
-    with c2:
-        tout = st.time_input("Out", mins_to_time(task.timeEnd), key=f"to_{task_key}_{id(task)}", label_visibility="collapsed")
-        task.setValue("timeEnd", time_to_mins(tout))
-    
-    dur = task.taskDuration
-    st.markdown(f"**DURATION: {dur//60}h {dur%60}m**")
+    # Add new instance selector
+    if available_days and len(recurrence_days) < 7:
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            new_day = st.selectbox(
+                "Add instance to day",
+                ['...'] + available_days,
+                key=f"add_instance_{task_key}",
+                label_visibility="collapsed"
+            )
+        with c2:
+            if st.button("+", key=f"btn_add_instance_{task_key}"):
+                if new_day != '...':
+                    add_recurrence(task_key, new_day)
+                    st.rerun()
     
     st.divider()
     
-    # Notes
-    st.markdown('<div class="label-text">NOTES</div>', unsafe_allow_html=True)
-    st.session_state.task_notes[task_key] = st.text_area(
-        "notes", st.session_state.task_notes[task_key], height=100,
-        key=f"nt_{task_key}_{id(task)}", label_visibility="collapsed",
-        placeholder="Notes..."
-    )
+    # Tabs for each instance
+    if len(recurrence_days) > 1:
+        instance_tabs = st.tabs([f"{d[:3].upper()}" for d in recurrence_days])
+    else:
+        instance_tabs = st.tabs([d[:3].upper() for d in recurrence_days])
+    
+    for idx, day in enumerate(recurrence_days):
+        with instance_tabs[idx]:
+            # Remove instance button if more than one
+            if len(recurrence_days) > 1:
+                if st.button(f"Remove {day} instance", key=f"rm_instance_{task_key}_{day}"):
+                    remove_recurrence(task_key, day)
+                    st.rerun()
+                st.divider()
+            
+            # Settings expander - navigation
+            with st.expander("SETTINGS", expanded=False):
+                st.markdown("**• Basic Information**")
+                st.markdown("**• Subtasks**")
+                st.markdown("**• Task Config**")
+            
+            st.divider()
+            
+            # BASIC INFORMATION
+            st.markdown('<div class="label-text">BASIC INFORMATION</div>', unsafe_allow_html=True)
+            
+            # Name
+            task.setValue("taskName", st.text_input(
+                "Name", task.taskName, key=f"n_{task_key}_{day}_{id(task)}"
+            ))
+            
+            # Deadline type
+            st.markdown("Deadline Type")
+            c1, c2 = st.columns(2)
+            with c1:
+                hard = st.checkbox("Hard", task.taskDeadline == 1, key=f"h_{task_key}_{day}_{id(task)}")
+                task.setValue("taskDeadline", 1 if hard else 0)
+            with c2:
+                st.checkbox("Soft", task.taskDeadline == 0, key=f"s_{task_key}_{day}_{id(task)}", disabled=True)
+            
+            # Time
+            c1, c2 = st.columns(2)
+            with c1:
+                tin = st.time_input("Time In", mins_to_time(task.timeStart), key=f"ti_{task_key}_{day}_{id(task)}")
+                task.setValue("timeStart", time_to_mins(tin))
+            with c2:
+                tout = st.time_input("Time Out", mins_to_time(task.timeEnd), key=f"to_{task_key}_{day}_{id(task)}")
+                task.setValue("timeEnd", time_to_mins(tout))
+            
+            dur = task.taskDuration
+            st.markdown(f"**DURATION: {dur//60}h {dur%60}m**")
+            
+            st.divider()
+            
+            # SUBTASKS
+            st.markdown('<div class="label-text">SUBTASKS</div>', unsafe_allow_html=True)
+            st.progress(task.getProgress() / 100)
+            
+            to_remove = []
+            for i, sub in enumerate(task.subTasks):
+                c1, c2, c3 = st.columns([1, 7, 1])
+                with c1:
+                    done = st.checkbox("c", sub.status, key=f"sd_{task_key}_{day}_{i}_{id(task)}", label_visibility="collapsed")
+                    if done != sub.status:
+                        sub.markDone() if done else sub.markUndone()
+                with c2:
+                    new = st.text_input("t", sub.name, key=f"st_{task_key}_{day}_{i}_{id(task)}", label_visibility="collapsed")
+                    if new != sub.name:
+                        sub.name = new
+                with c3:
+                    if st.button("×", key=f"ds_{task_key}_{day}_{i}_{id(task)}"):
+                        to_remove.append(sub)
+            
+            for sub in to_remove:
+                task.removeSubTask(sub)
+            
+            if st.button("+ SUBTASK", key=f"as_{task_key}_{day}_{id(task)}", use_container_width=True):
+                task.addSubTask(subTask("New", False))
+                st.rerun()
+            
+            st.divider()
+            
+            # TASK CONFIG
+            st.markdown('<div class="label-text">TASK CONFIG</div>', unsafe_allow_html=True)
+            
+            # Difficulty
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                diff = st.slider("Difficulty", 1, 5, task.taskDifficulty, key=f"df_{task_key}_{day}_{id(task)}")
+                task.setValue("taskDifficulty", diff)
+            with c2:
+                st.markdown(f"### {'⭐' * diff}")
+            
+            # Event type
+            event = st.selectbox(
+                "Type", ['Event', 'Assignment', 'Task', 'Chore'],
+                index=['Event', 'Assignment', 'Task', 'Chore'].index(EVENT_TAGS.get(task.eventTag, "Task")),
+                key=f"et_{task_key}_{day}_{id(task)}"
+            )
+            task.setValue("eventTag", EVENT_TAGS_REVERSE[event])
+            
+            # Time frame
+            frame = st.selectbox(
+                "Time Frame", ['Day', 'Afternoon', 'Evening', 'All Day'],
+                index=['Day', 'Afternoon', 'Evening', 'All Day'].index(TIME_FRAMES.get(task.timeFrame, "Day")),
+                key=f"tf_{task_key}_{day}_{id(task)}"
+            )
+            task.setValue("timeFrame", TIME_FRAMES_REVERSE[frame])
+            
+            # Priority display
+            st.metric("Priority", f"{task.priority}%")
+            
+            st.divider()
+            
+            # Notes
+            st.markdown('<div class="label-text">NOTES</div>', unsafe_allow_html=True)
+            st.session_state.task_notes[task_key] = st.text_area(
+                "notes", st.session_state.task_notes[task_key], height=100,
+                key=f"nt_{task_key}_{day}_{id(task)}", label_visibility="collapsed",
+                placeholder="Notes, links, details..."
+            )
     
     st.divider()
     
-    # Action buttons
+    # Action buttons (outside tabs - affect all instances)
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("Save", key=f"save_{task_key}", use_container_width=True):
+            st.session_state.week_instance.organizeWeek()
             st.success("Saved")
     with c2:
         if st.button("Cancel", key=f"cancel_{task_key}", use_container_width=True):
             st.session_state.selected_task = None
             st.rerun()
     with c3:
-        if st.button("Delete", key=f"del_{task_key}", use_container_width=True):
+        if st.button("Delete All", key=f"del_{task_key}", use_container_width=True):
             delete_task(task_key)
             st.session_state.selected_task = None
             st.rerun()
@@ -379,3 +539,4 @@ elif st.session_state.current_view == 'progress':
         progress = (done_subs / total_subs) * 100
         st.progress(progress / 100)
         st.text(f"{progress:.0f}% Complete")
+        

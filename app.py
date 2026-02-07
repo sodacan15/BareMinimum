@@ -234,9 +234,6 @@ def render_task_detail(task, day_obj):
     all_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     available_days = [d for d in all_days if d not in recurrence_days]
     
-    # Day tabs with + button
-    day_tabs_display = [d[:3].upper() for d in recurrence_days]
-    
     # Add new instance selector
     if available_days and len(recurrence_days) < 7:
         c1, c2 = st.columns([3, 1])
@@ -270,116 +267,114 @@ def render_task_detail(task, day_obj):
                     st.rerun()
                 st.divider()
             
-            # Settings expander - navigation
-            with st.expander("SETTINGS", expanded=False):
-                st.markdown("**• Basic Information**")
-                st.markdown("**• Subtasks**")
-                st.markdown("**• Task Config**")
+            # SETTINGS - Nested tabs within this instance
+            settings_tabs = st.tabs(["Basic Information", "Subtasks", "Task Config"])
             
-            st.divider()
-            
-            # BASIC INFORMATION
-            st.markdown('<div class="label-text">BASIC INFORMATION</div>', unsafe_allow_html=True)
-            
-            # Name
-            task.setValue("taskName", st.text_input(
-                "Name", task.taskName, key=f"n_{task_key}_{day}_{id(task)}"
-            ))
-            
-            # Deadline type
-            st.markdown("Deadline Type")
-            c1, c2 = st.columns(2)
-            with c1:
-                hard = st.checkbox("Hard", task.taskDeadline == 1, key=f"h_{task_key}_{day}_{id(task)}")
-                task.setValue("taskDeadline", 1 if hard else 0)
-            with c2:
-                st.checkbox("Soft", task.taskDeadline == 0, key=f"s_{task_key}_{day}_{id(task)}", disabled=True)
-            
-            # Time
-            c1, c2 = st.columns(2)
-            with c1:
-                tin = st.time_input("Time In", mins_to_time(task.timeStart), key=f"ti_{task_key}_{day}_{id(task)}")
-                task.setValue("timeStart", time_to_mins(tin))
-            with c2:
-                tout = st.time_input("Time Out", mins_to_time(task.timeEnd), key=f"to_{task_key}_{day}_{id(task)}")
-                task.setValue("timeEnd", time_to_mins(tout))
-            
-            dur = task.taskDuration
-            st.markdown(f"**DURATION: {dur//60}h {dur%60}m**")
-            
-            st.divider()
-            
-            # SUBTASKS
-            st.markdown('<div class="label-text">SUBTASKS</div>', unsafe_allow_html=True)
-            st.progress(task.getProgress() / 100)
-            
-            to_remove = []
-            for i, sub in enumerate(task.subTasks):
-                c1, c2, c3 = st.columns([1, 7, 1])
+            # Tab 1: Basic Information
+            with settings_tabs[0]:
+                # Name
+                st.markdown('<div class="label-text">NAME</div>', unsafe_allow_html=True)
+                task.setValue("taskName", st.text_input(
+                    "Name", task.taskName, key=f"n_{task_key}_{day}_{id(task)}", 
+                    label_visibility="collapsed"
+                ))
+                
+                # Deadline type
+                st.markdown('<div class="label-text">Deadline Type</div>', unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
                 with c1:
-                    done = st.checkbox("c", sub.status, key=f"sd_{task_key}_{day}_{i}_{id(task)}", label_visibility="collapsed")
-                    if done != sub.status:
-                        sub.markDone() if done else sub.markUndone()
+                    hard = st.radio("dt", ["Hard", "Soft"], index=0 if task.taskDeadline == 1 else 1, 
+                                   key=f"deadline_{task_key}_{day}_{id(task)}", label_visibility="collapsed", horizontal=True)
+                    task.setValue("taskDeadline", 1 if hard == "Hard" else 0)
+                
+                # Time
+                st.markdown('<div class="label-text">TIME IN / TIME OUT</div>', unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                with c1:
+                    tin = st.time_input("Time In", mins_to_time(task.timeStart), key=f"ti_{task_key}_{day}_{id(task)}", 
+                                       label_visibility="collapsed")
+                    task.setValue("timeStart", time_to_mins(tin))
                 with c2:
-                    new = st.text_input("t", sub.name, key=f"st_{task_key}_{day}_{i}_{id(task)}", label_visibility="collapsed")
-                    if new != sub.name:
-                        sub.name = new
-                with c3:
-                    if st.button("×", key=f"ds_{task_key}_{day}_{i}_{id(task)}"):
-                        to_remove.append(sub)
+                    tout = st.time_input("Time Out", mins_to_time(task.timeEnd), key=f"to_{task_key}_{day}_{id(task)}", 
+                                        label_visibility="collapsed")
+                    task.setValue("timeEnd", time_to_mins(tout))
+                
+                dur = task.taskDuration
+                st.markdown(f"**DURATION: {dur//60}h {dur%60}m**")
+                
+                st.divider()
+                
+                # Notes
+                st.markdown('<div class="label-text">NOTES</div>', unsafe_allow_html=True)
+                st.session_state.task_notes[task_key] = st.text_area(
+                    "notes", st.session_state.task_notes[task_key], height=100,
+                    key=f"nt_{task_key}_{day}_{id(task)}", label_visibility="collapsed",
+                    placeholder="Notes, links, details..."
+                )
             
-            for sub in to_remove:
-                task.removeSubTask(sub)
+            # Tab 2: Subtasks
+            with settings_tabs[1]:
+                st.markdown('<div class="label-text">SUBTASKS</div>', unsafe_allow_html=True)
+                st.progress(task.getProgress() / 100)
+                
+                to_remove = []
+                for i, sub in enumerate(task.subTasks):
+                    c1, c2, c3 = st.columns([1, 7, 1])
+                    with c1:
+                        done = st.checkbox("c", sub.status, key=f"sd_{task_key}_{day}_{i}_{id(task)}", 
+                                         label_visibility="collapsed")
+                        if done != sub.status:
+                            sub.markDone() if done else sub.markUndone()
+                    with c2:
+                        new = st.text_input("t", sub.name, key=f"st_{task_key}_{day}_{i}_{id(task)}", 
+                                          label_visibility="collapsed")
+                        if new != sub.name:
+                            sub.name = new
+                    with c3:
+                        if st.button("×", key=f"ds_{task_key}_{day}_{i}_{id(task)}"):
+                            to_remove.append(sub)
+                
+                for sub in to_remove:
+                    task.removeSubTask(sub)
+                
+                if st.button("+ SUBTASK", key=f"as_{task_key}_{day}_{id(task)}", use_container_width=True):
+                    task.addSubTask(subTask("New", False))
+                    st.rerun()
             
-            if st.button("+ SUBTASK", key=f"as_{task_key}_{day}_{id(task)}", use_container_width=True):
-                task.addSubTask(subTask("New", False))
-                st.rerun()
-            
-            st.divider()
-            
-            # TASK CONFIG
-            st.markdown('<div class="label-text">TASK CONFIG</div>', unsafe_allow_html=True)
-            
-            # Difficulty
-            c1, c2 = st.columns([3, 1])
-            with c1:
-                diff = st.slider("Difficulty", 1, 5, task.taskDifficulty, key=f"df_{task_key}_{day}_{id(task)}")
-                task.setValue("taskDifficulty", diff)
-            with c2:
-                st.markdown(f"### {'⭐' * diff}")
-            
-            # Event type
-            event = st.selectbox(
-                "Type", ['Event', 'Assignment', 'Task', 'Chore'],
-                index=['Event', 'Assignment', 'Task', 'Chore'].index(EVENT_TAGS.get(task.eventTag, "Task")),
-                key=f"et_{task_key}_{day}_{id(task)}"
-            )
-            task.setValue("eventTag", EVENT_TAGS_REVERSE[event])
-            
-            # Time frame
-            frame = st.selectbox(
-                "Time Frame", ['Day', 'Afternoon', 'Evening', 'All Day'],
-                index=['Day', 'Afternoon', 'Evening', 'All Day'].index(TIME_FRAMES.get(task.timeFrame, "Day")),
-                key=f"tf_{task_key}_{day}_{id(task)}"
-            )
-            task.setValue("timeFrame", TIME_FRAMES_REVERSE[frame])
-            
-            # Priority display
-            st.metric("Priority", f"{task.priority}%")
-            
-            st.divider()
-            
-            # Notes
-            st.markdown('<div class="label-text">NOTES</div>', unsafe_allow_html=True)
-            st.session_state.task_notes[task_key] = st.text_area(
-                "notes", st.session_state.task_notes[task_key], height=100,
-                key=f"nt_{task_key}_{day}_{id(task)}", label_visibility="collapsed",
-                placeholder="Notes, links, details..."
-            )
+            # Tab 3: Task Config
+            with settings_tabs[2]:
+                st.markdown('<div class="label-text">TASK CONFIG</div>', unsafe_allow_html=True)
+                
+                # Difficulty
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    diff = st.slider("Difficulty", 1, 5, task.taskDifficulty, key=f"df_{task_key}_{day}_{id(task)}")
+                    task.setValue("taskDifficulty", diff)
+                with c2:
+                    st.markdown(f"### {'⭐' * diff}")
+                
+                # Event type
+                event = st.selectbox(
+                    "Type", ['Event', 'Assignment', 'Task', 'Chore'],
+                    index=['Event', 'Assignment', 'Task', 'Chore'].index(EVENT_TAGS.get(task.eventTag, "Task")),
+                    key=f"et_{task_key}_{day}_{id(task)}"
+                )
+                task.setValue("eventTag", EVENT_TAGS_REVERSE[event])
+                
+                # Time frame
+                frame = st.selectbox(
+                    "Time Frame", ['Day', 'Afternoon', 'Evening', 'All Day'],
+                    index=['Day', 'Afternoon', 'Evening', 'All Day'].index(TIME_FRAMES.get(task.timeFrame, "Day")),
+                    key=f"tf_{task_key}_{day}_{id(task)}"
+                )
+                task.setValue("timeFrame", TIME_FRAMES_REVERSE[frame])
+                
+                # Priority display
+                st.metric("Priority", f"{task.priority}%")
     
     st.divider()
     
-    # Action buttons (outside tabs - affect all instances)
+    # Action buttons (outside all tabs - affect all instances)
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("Save", key=f"save_{task_key}", use_container_width=True):

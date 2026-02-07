@@ -1,0 +1,31 @@
+[
+  {
+    "taskName": "Computer Programming Terminal App",
+    "taskDifficulty": 4,
+    "taskDeadline": 1,
+    "timeStart": 540,
+    "timeEnd": 1020,
+    "eventTag": 4,
+    "timeFrame": 4,
+    "day": "Monday",
+    "subTasks": [
+      {
+        "name": "Plan the Task",
+        "status": false
+      },
+      {
+        "name": "Revise the Plan",
+        "status": false
+      },
+      {
+        "name": "Code the App",
+        "status": false
+      },
+      {
+        "name": "Check and Revise",
+        "status": false
+      }
+    ],
+    "notes": ""
+  }
+]

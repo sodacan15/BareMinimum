@@ -539,4 +539,3 @@ elif st.session_state.current_view == 'progress':
         progress = (done_subs / total_subs) * 100
         st.progress(progress / 100)
         st.text(f"{progress:.0f}% Complete")
-        

@@ -68,7 +68,7 @@ def time_str_to_mins(time_str):
 # ==================== TASK OPERATIONS (Supabase) ====================
 
 def save_tasks(week_instance):
-    """Save all tasks to Supabase (Tasks + Recurrence). Subtasks saved locally."""
+    """Save all tasks to Supabase (Tasks + Recurrence + Subtasks)."""
     try:
         memory_tasks = {}
         memory_pairs = []
@@ -140,15 +140,19 @@ def save_tasks(week_instance):
             else:
                 supabase.table("Recurrence").insert(rec_row).execute()
 
-        subtasks_data = {}
-        for day in week_instance.days:
-            for task in day.tasks:
-                key = f"{task.taskName}__{day.name}"
-                subtasks_data[key] = [
-                    {"id": sub.id, "name": sub.name, "status": sub.status}
-                    for sub in task.subTasks
-                ]
-        save_json("data/subtasks.json", subtasks_data)
+        for task_name, day_name, task in memory_pairs:
+            tid = task_id_map.get(task_name)
+            if not tid:
+                continue
+            supabase.table("Subtasks").delete().eq("TaskID", tid).eq("SubtaskDay", day_name).execute()
+            for sub in task.subTasks:
+                supabase.table("Subtasks").insert({
+                    "TaskID": tid,
+                    "SubtaskDay": day_name,
+                    "Subtask": sub.name,
+                    "TimeAllotment": 0,
+                    "SubtaskStatus": "done" if sub.status else "pending",
+                }).execute()
 
         return True
     except Exception as e:
@@ -164,7 +168,11 @@ def load_tasks():
             "*, Tasks(TaskID, TaskName, DayCount, TaskStatus)"
         ).execute()
 
-        subtasks_data = load_json("data/subtasks.json", default={})
+        subs_result = supabase.table("Subtasks").select("*").execute()
+        subtasks_map = {}
+        for s in subs_result.data:
+            key = (s.get("TaskID"), s.get("SubtaskDay"))
+            subtasks_map.setdefault(key, []).append(s)
 
         for rec in result.data:
             task_info = rec.get("Tasks") or {}
@@ -187,11 +195,12 @@ def load_tasks():
             day_name = rec.get("Day", "Monday")
             task.setValue("day", day_name)
 
-            key = f"{task.taskName}__{day_name}"
-            for sub_dict in subtasks_data.get(key, []):
-                st_obj = subTask(sub_dict.get("name", "Subtask"), sub_dict.get("status", False))
-                if "id" in sub_dict:
-                    st_obj.id = sub_dict["id"]
+            tid = task_info.get("TaskID")
+            for s in subtasks_map.get((tid, day_name), []):
+                st_obj = subTask(
+                    s.get("Subtask", "Subtask"),
+                    s.get("SubtaskStatus") == "done"
+                )
                 task.addSubTask(st_obj)
 
             task.setPriority()

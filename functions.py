@@ -5,13 +5,20 @@ from datetime import datetime
 from supabase import create_client, Client
 from dataStruct import Task, subTask, week, Day
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+_supabase_client: Client = None
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+def get_supabase() -> Client:
+    global _supabase_client
+    if _supabase_client is None:
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_SERVICE_KEY")
+        if not url or not key:
+            raise RuntimeError(
+                "Supabase secrets not configured. "
+                "Set SUPABASE_URL and SUPABASE_SERVICE_KEY as environment secrets."
+            )
+        _supabase_client = create_client(url, key)
+    return _supabase_client
 
 LINKS_JSON = "links.json"
 SETTINGS_JSON = "settings.json"
@@ -73,6 +80,7 @@ def save_tasks(week_instance):
                     memory_tasks[name] = task
                 memory_pairs.append((name, day.name, task))
 
+        supabase = get_supabase()
         existing_tasks = supabase.table("Tasks").select("TaskID, TaskName").execute().data
         existing_task_map = {t["TaskName"]: t["TaskID"] for t in existing_tasks}
 
@@ -151,6 +159,7 @@ def load_tasks():
     """Load tasks from Supabase and return a week instance."""
     week_instance = week()
     try:
+        supabase = get_supabase()
         result = supabase.table("Recurrence").select(
             "*, Tasks(TaskID, TaskName, DayCount, TaskStatus)"
         ).execute()
@@ -212,6 +221,7 @@ def save_recurrences(recurrences):
 def load_recurrences():
     """Derive recurrence map from Supabase Recurrence table."""
     try:
+        supabase = get_supabase()
         result = supabase.table("Recurrence").select("Day, Tasks(TaskName)").execute()
         recurrences = {}
         for rec in result.data:

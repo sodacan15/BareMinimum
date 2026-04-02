@@ -558,64 +558,78 @@ elif st.session_state.current_view == 'timetable':
     st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
     TYPE_COLORS = {"Event": "#4af", "Assignment": "#f94", "Task": "#fff", "Chore": "#888"}
-
     days_full = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     today_name = datetime.now().strftime("%A")
 
-    tt_cols = st.columns(2)
-    col_idx = 0
+    active_days = [
+        d_name for d_name in days_full
+        for d in st.session_state.week_instance.days
+        if d.name == d_name and d.tasks
+    ]
 
-    for day_name in days_full:
-        day_obj = next((d for d in st.session_state.week_instance.days if d.name == day_name), None)
-        if not day_obj or not day_obj.tasks:
-            continue
+    if not active_days:
+        st.info("No tasks scheduled this week.")
+    else:
+        tt_tabs = st.tabs([
+            ("● " if d == today_name else "") + d[:3].upper()
+            for d in active_days
+        ])
+        for tab, day_name in zip(tt_tabs, active_days):
+            with tab:
+                day_obj = next(d for d in st.session_state.week_instance.days if d.name == day_name)
+                sorted_tasks = sorted(day_obj.tasks, key=lambda x: x.timeStart)
+                total_mins = sum(tk.taskDuration for tk in sorted_tasks)
+                th, tm = total_mins // 60, total_mins % 60
+                is_today = day_name == today_name
+                border_col = "#fff" if is_today else "#333"
 
-        sorted_tasks = sorted(day_obj.tasks, key=lambda x: x.timeStart)
-        total_mins = sum(t.taskDuration for t in sorted_tasks)
-        h, m = total_mins // 60, total_mins % 60
-        is_today = day_name == today_name
-        today_marker = ' <span style="color:#0f0;font-size:8px;">● TODAY</span>' if is_today else ''
+                st.markdown(
+                    f'<div style="font-size:9px;color:#666;margin-bottom:8px;">'
+                    f'{len(sorted_tasks)} tasks &nbsp;·&nbsp; {th}h {tm:02d}m total'
+                    f'{"&nbsp;&nbsp;<span style=\'color:#0f0;\'>● TODAY</span>" if is_today else ""}'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
 
-        rows_html = ""
-        for task in sorted_tasks:
-            start_time = mins_to_time(task.timeStart).strftime("%H:%M")
-            end_time   = mins_to_time(task.timeEnd).strftime("%H:%M")
-            dur_h = task.taskDuration // 60
-            dur_m = task.taskDuration % 60
-            dur_str = f"{dur_h}h {dur_m}m" if dur_h else f"{dur_m}m"
-            progress = task.getProgress()
-            bar_color = "#0f0" if progress == 100 else ("#ff0" if progress > 0 else "#333")
-            tag = EVENT_TAGS.get(task.eventTag, "Task")
-            col_hex = TYPE_COLORS.get(tag, "#fff")
-            n_subs = len(task.subTasks)
-            done_subs = sum(1 for s in task.subTasks if s.status)
-            sub_str = f"{done_subs}/{n_subs} sub" if n_subs else ""
+                for task in sorted_tasks:
+                    start_str = mins_to_time(task.timeStart).strftime("%H:%M")
+                    end_str   = mins_to_time(task.timeEnd).strftime("%H:%M")
+                    dur_h = task.taskDuration // 60
+                    dur_m = task.taskDuration % 60
+                    dur_str = f"{dur_h}h {dur_m}m" if dur_h else f"{dur_m}m"
+                    progress = task.getProgress()
+                    bar_w = max(int(progress), 3)
+                    bar_color = "#0f0" if progress == 100 else ("#ff0" if progress > 0 else "#333")
+                    tag = EVENT_TAGS.get(task.eventTag, "Task")
+                    name_color = TYPE_COLORS.get(tag, "#fff")
+                    n_subs = len(task.subTasks)
+                    done_subs = sum(1 for s in task.subTasks if s.status)
+                    sub_str = f"{done_subs}/{n_subs} subtasks" if n_subs else "no subtasks"
 
-            rows_html += f"""
-            <div style="display:flex;align-items:center;padding:6px 0;border-bottom:1px solid #1a1a1a;gap:8px;">
-                <div style="font-size:9px;color:#666;width:90px;flex-shrink:0;">{start_time}→{end_time}</div>
-                <div style="flex-grow:1;min-width:0;">
-                    <div style="font-size:10px;color:{col_hex};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{task.taskName}</div>
-                    <div style="height:2px;background:{bar_color};width:{max(progress,4)}%;margin-top:3px;"></div>
-                </div>
-                <div style="text-align:right;flex-shrink:0;">
-                    <div style="font-size:9px;color:#666;">{dur_str}</div>
-                    <div style="font-size:8px;color:#555;">{sub_str}</div>
-                </div>
-            </div>"""
-
-        block_html = f"""
-        <div style="background:#0a0a0a;border:1px solid {'#fff' if is_today else '#333'};padding:10px;margin-bottom:12px;">
-            <div style="font-size:10px;letter-spacing:0.15em;margin-bottom:6px;border-bottom:1px solid #333;padding-bottom:4px;">
-                {day_name.upper()}{today_marker}
-                <span style="float:right;color:#666;font-size:9px;">{len(sorted_tasks)} tasks · {h}h{m:02d}m</span>
-            </div>
-            {rows_html}
-        </div>"""
-
-        with tt_cols[col_idx % 2]:
-            st.markdown(block_html, unsafe_allow_html=True)
-        col_idx += 1
+                    c1, c2, c3 = st.columns([2, 5, 2])
+                    with c1:
+                        st.markdown(
+                            f'<div style="font-size:9px;color:#666;padding-top:4px;">'
+                            f'{start_str}<br/>{end_str}</div>',
+                            unsafe_allow_html=True
+                        )
+                    with c2:
+                        st.markdown(
+                            f'<div style="font-size:11px;color:{name_color};margin-bottom:4px;">{task.taskName}</div>'
+                            f'<div style="height:2px;background:#222;border-radius:1px;">'
+                            f'<div style="height:2px;background:{bar_color};width:{bar_w}%;"></div></div>'
+                            f'<div style="font-size:8px;color:#555;margin-top:2px;">{tag} · {sub_str}</div>',
+                            unsafe_allow_html=True
+                        )
+                    with c3:
+                        st.markdown(
+                            f'<div style="font-size:9px;color:#666;text-align:right;padding-top:4px;">'
+                            f'{dur_str}<br/>'
+                            f'<span style="color:{"#0f0" if progress==100 else "#ff0" if progress>0 else "#555"}">'
+                            f'{progress:.0f}%</span></div>',
+                            unsafe_allow_html=True
+                        )
+                    st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
 elif st.session_state.current_view == 'handbook':
     handbook_tabs = st.tabs(["SHORTCUTS", "REMINDERS"])

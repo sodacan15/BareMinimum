@@ -131,15 +131,21 @@ def save_tasks(week_instance):
             if key in existing_rec_map:
                 supabase.table("Recurrence").update(rec_row).eq("RecurrenceID", existing_rec_map[key]).execute()
             else:
-                supabase.table("Recurrence").insert(rec_row).execute()
+                res = supabase.table("Recurrence").insert(rec_row).execute()
+                if res.data:
+                    existing_rec_map[key] = res.data[0]["RecurrenceID"]
 
         for task_name, day_name, task in memory_pairs:
             tid = task_id_map.get(task_name)
             if not tid:
                 continue
-            supabase.table("Subtasks").delete().eq("TaskID", tid).eq("SubtaskDay", day_name).execute()
+            rec_id = existing_rec_map.get((tid, day_name))
+            if not rec_id:
+                continue
+            supabase.table("Subtasks").delete().eq("RecurrenceID", rec_id).execute()
             for sub in task.subTasks:
                 supabase.table("Subtasks").insert({
+                    "RecurrenceID": rec_id,
                     "TaskID": tid,
                     "SubtaskDay": day_name,
                     "Subtask": sub.name,
@@ -161,10 +167,15 @@ def load_tasks():
         ).execute()
 
         subs_result = supabase.table("Subtasks").select("*").execute()
-        subtasks_map = {}
+        subtasks_by_rec = {}
+        subtasks_by_key = {}
         for s in subs_result.data:
-            key = (s.get("TaskID"), s.get("SubtaskDay"))
-            subtasks_map.setdefault(key, []).append(s)
+            rec_id = s.get("RecurrenceID")
+            if rec_id:
+                subtasks_by_rec.setdefault(rec_id, []).append(s)
+            else:
+                key = (s.get("TaskID"), s.get("SubtaskDay"))
+                subtasks_by_key.setdefault(key, []).append(s)
 
         for rec in result.data:
             task_info = rec.get("Tasks") or {}
@@ -187,8 +198,10 @@ def load_tasks():
             day_name = rec.get("Day", "Monday")
             task.setValue("day", day_name)
 
+            rec_id = rec.get("RecurrenceID")
             tid = task_info.get("TaskID")
-            for s in subtasks_map.get((tid, day_name), []):
+            subs = subtasks_by_rec.get(rec_id, []) or subtasks_by_key.get((tid, day_name), [])
+            for s in subs:
                 st_obj = subTask(
                     s.get("Subtask", "Subtask"),
                     s.get("SubtaskStatus") == "done"

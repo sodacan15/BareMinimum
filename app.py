@@ -202,6 +202,7 @@ def add_recurrence(task_obj, day_name):
         
         if st.session_state.auto_save:
             fn.save_tasks(st.session_state.week_instance)
+            fn.save_recurrences(st.session_state.task_recurrences)
 
 def remove_recurrence(task_name, day_name):
     if task_name in st.session_state.task_recurrences:
@@ -449,7 +450,9 @@ def render_task_detail(task, day_obj):
         fn.save_tasks(st.session_state.week_instance)
         fn.save_notes(st.session_state.task_notes)
         fn.save_recurrences(st.session_state.task_recurrences)
-        st.success("Saved!")
+        fn.save_shortcuts(st.session_state.shortcuts)
+        fn.save_handbook_notes(st.session_state.handbook_notes)
+        st.success("✓ All saved")
 
     if st.button("← Cancel", key=f"cancel_{task.id}", use_container_width=True):
         st.session_state.selected_task_id = None
@@ -491,7 +494,13 @@ if st.session_state.current_view == 'planner':
         
         days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
         days_full = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        tabs = st.tabs(days)
+        today_short = datetime.now().strftime("%A")[:3].upper()
+        day_labels = []
+        for i, (ds, df) in enumerate(zip(days, days_full)):
+            cnt = len(st.session_state.week_instance.days[i].tasks)
+            marker = "●" if ds == today_short else ""
+            day_labels.append(f"{marker}{ds}{'·'+str(cnt) if cnt else ''}")
+        tabs = st.tabs(day_labels)
         
         for i, (day_short, d_full) in enumerate(zip(days, days_full)):
             day_obj = st.session_state.week_instance.days[i]
@@ -545,33 +554,68 @@ if st.session_state.current_view == 'planner':
 
 elif st.session_state.current_view == 'timetable':
     st.markdown("### WEEKLY TIMETABLE")
-    st.markdown('<div class="label-text">Chronological view of all scheduled tasks</div>', unsafe_allow_html=True)
+    st.markdown('<div class="label-text">Chronological schedule — all tasks this week</div>', unsafe_allow_html=True)
     st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-    
+
+    TYPE_COLORS = {"Event": "#4af", "Assignment": "#f94", "Task": "#fff", "Chore": "#888"}
+
     days_full = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    
+    today_name = datetime.now().strftime("%A")
+
+    tt_cols = st.columns(2)
+    col_idx = 0
+
     for day_name in days_full:
         day_obj = next((d for d in st.session_state.week_instance.days if d.name == day_name), None)
-        if day_obj and day_obj.tasks:
-            st.markdown(f'<div class="timetable-header">{day_name.upper()}</div>', unsafe_allow_html=True)
-            
-            sorted_tasks = sorted(day_obj.tasks, key=lambda x: x.timeStart)
-            
-            for task in sorted_tasks:
-                start_time = mins_to_time(task.timeStart).strftime("%H:%M")
-                end_time = mins_to_time(task.timeEnd).strftime("%H:%M")
-                duration = f"{task.taskDuration//60}h {task.taskDuration%60}m"
-                status = get_task_status_badge(task)
-                
-                st.markdown(f'''
-                <div class="timetable-row">
-                    <div class="timetable-time">{start_time} - {end_time}</div>
-                    <div class="timetable-task">{task.taskName} {status}</div>
-                    <div class="timetable-duration">{duration}</div>
+        if not day_obj or not day_obj.tasks:
+            continue
+
+        sorted_tasks = sorted(day_obj.tasks, key=lambda x: x.timeStart)
+        total_mins = sum(t.taskDuration for t in sorted_tasks)
+        h, m = total_mins // 60, total_mins % 60
+        is_today = day_name == today_name
+        today_marker = ' <span style="color:#0f0;font-size:8px;">● TODAY</span>' if is_today else ''
+
+        rows_html = ""
+        for task in sorted_tasks:
+            start_time = mins_to_time(task.timeStart).strftime("%H:%M")
+            end_time   = mins_to_time(task.timeEnd).strftime("%H:%M")
+            dur_h = task.taskDuration // 60
+            dur_m = task.taskDuration % 60
+            dur_str = f"{dur_h}h {dur_m}m" if dur_h else f"{dur_m}m"
+            progress = task.getProgress()
+            bar_color = "#0f0" if progress == 100 else ("#ff0" if progress > 0 else "#333")
+            tag = EVENT_TAGS.get(task.eventTag, "Task")
+            col_hex = TYPE_COLORS.get(tag, "#fff")
+            n_subs = len(task.subTasks)
+            done_subs = sum(1 for s in task.subTasks if s.status)
+            sub_str = f"{done_subs}/{n_subs} sub" if n_subs else ""
+
+            rows_html += f"""
+            <div style="display:flex;align-items:center;padding:6px 0;border-bottom:1px solid #1a1a1a;gap:8px;">
+                <div style="font-size:9px;color:#666;width:90px;flex-shrink:0;">{start_time}→{end_time}</div>
+                <div style="flex-grow:1;min-width:0;">
+                    <div style="font-size:10px;color:{col_hex};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{task.taskName}</div>
+                    <div style="height:2px;background:{bar_color};width:{max(progress,4)}%;margin-top:3px;"></div>
                 </div>
-                ''', unsafe_allow_html=True)
-            
-            st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+                <div style="text-align:right;flex-shrink:0;">
+                    <div style="font-size:9px;color:#666;">{dur_str}</div>
+                    <div style="font-size:8px;color:#555;">{sub_str}</div>
+                </div>
+            </div>"""
+
+        block_html = f"""
+        <div style="background:#0a0a0a;border:1px solid {'#fff' if is_today else '#333'};padding:10px;margin-bottom:12px;">
+            <div style="font-size:10px;letter-spacing:0.15em;margin-bottom:6px;border-bottom:1px solid #333;padding-bottom:4px;">
+                {day_name.upper()}{today_marker}
+                <span style="float:right;color:#666;font-size:9px;">{len(sorted_tasks)} tasks · {h}h{m:02d}m</span>
+            </div>
+            {rows_html}
+        </div>"""
+
+        with tt_cols[col_idx % 2]:
+            st.markdown(block_html, unsafe_allow_html=True)
+        col_idx += 1
 
 elif st.session_state.current_view == 'handbook':
     handbook_tabs = st.tabs(["SHORTCUTS", "REMINDERS"])
@@ -579,21 +623,27 @@ elif st.session_state.current_view == 'handbook':
         st.markdown('<div class="label-text">EXTERNAL LINKS</div>', unsafe_allow_html=True)
         
         for idx, shortcut in enumerate(st.session_state.shortcuts):
-            c1, c2, c3 = st.columns([3, 1, 1])
-            with c1: st.text(shortcut["name"])
-            with c2: 
-                if st.button("Link", key=f"link_{shortcut.get('id', idx)}", use_container_width=True): 
-                    st.markdown(f"[{shortcut['name']}]({shortcut['url']})")
+            c1, c2, c3 = st.columns([4, 1, 1])
+            with c1:
+                url = shortcut["url"]
+                if not url.startswith("http"):
+                    url = "https://" + url
+                st.link_button(shortcut["name"], url, use_container_width=True)
+            with c2:
+                st.markdown(f'<div style="padding-top:6px;font-size:9px;color:#999;">{url[:20]}…</div>', unsafe_allow_html=True)
             with c3:
-                if st.button("Del", key=f"del_shortcut_{shortcut.get('id', idx)}", use_container_width=True):
+                if st.button("✕", key=f"del_shortcut_{shortcut.get('id', idx)}", use_container_width=True):
                     fn.delete_shortcut(shortcut.get('id', idx)); st.session_state.shortcuts = fn.load_shortcuts(); st.rerun()
             st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
         
-        with st.expander("+ Create Shortcut"):
-            n_name = st.text_input("Site Name", key="new_s_name")
-            n_url = st.text_input("URL Path", key="new_s_url")
-            if st.button("Save Shortcut"):
-                if n_name and n_url: fn.add_shortcut(n_name, n_url); st.session_state.shortcuts = fn.load_shortcuts(); st.rerun()
+        with st.expander("+ Add Link"):
+            n_name = st.text_input("Name", key="new_s_name")
+            n_url = st.text_input("URL", key="new_s_url")
+            if st.button("Save Link", use_container_width=True):
+                if n_name and n_url:
+                    fn.add_shortcut(n_name, n_url)
+                    st.session_state.shortcuts = fn.load_shortcuts()
+                    st.rerun()
     
     with handbook_tabs[1]:
         st.markdown('<div class="label-text">CENTRAL NOTEPAD</div>', unsafe_allow_html=True)
@@ -637,4 +687,3 @@ elif st.session_state.current_view == 'progress':
         prog = (done_subs / total_subs) * 100
         st.progress(prog / 100)
         st.text(f"Total Productivity: {prog:.1f}%")
-

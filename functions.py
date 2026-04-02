@@ -62,90 +62,72 @@ def time_str_to_mins(time_str):
 # ==================== TASK OPERATIONS (Supabase) ====================
 
 def save_tasks(week_instance):
-    """Save all tasks to Supabase (Tasks + Recurrence + Subtasks)."""
+    """Save all tasks to Supabase. Each task-day combo has its own TaskID."""
     try:
-        memory_tasks = {}
         memory_pairs = []
-
         for day in week_instance.days:
             for task in day.tasks:
-                name = task.taskName
-                if name not in memory_tasks:
-                    memory_tasks[name] = task
-                memory_pairs.append((name, day.name, task))
+                memory_pairs.append((task.taskName, day.name, task))
 
-        existing_tasks = supabase.table("Tasks").select("TaskID, TaskName").execute().data
-        existing_task_map = {t["TaskName"]: t["TaskID"] for t in existing_tasks}
+        memory_keys = {(name, day) for name, day, _ in memory_pairs}
 
-        for task_name, task_id in list(existing_task_map.items()):
-            if task_name not in memory_tasks:
-                supabase.table("Recurrence").delete().eq("TaskID", task_id).execute()
-                supabase.table("Tasks").delete().eq("TaskID", task_id).execute()
-                del existing_task_map[task_name]
+        # Build existing map: (TaskName, Day) -> (TaskID, RecurrenceID)
+        existing_recs = supabase.table("Recurrence").select(
+            "RecurrenceID, TaskID, Day, Tasks(TaskName)"
+        ).execute().data
+        existing_map = {}
+        for r in existing_recs:
+            task_info = r.get("Tasks") or {}
+            name = task_info.get("TaskName")
+            day = r.get("Day")
+            if name and day:
+                existing_map[(name, day)] = (r["TaskID"], r["RecurrenceID"])
 
+        # Delete orphaned task-day combos
+        for (name, day), (tid, rec_id) in list(existing_map.items()):
+            if (name, day) not in memory_keys:
+                supabase.table("Subtasks").delete().eq("TaskID", tid).execute()
+                supabase.table("Recurrence").delete().eq("RecurrenceID", rec_id).execute()
+                supabase.table("Tasks").delete().eq("TaskID", tid).execute()
+
+        # Upsert each task-day combo
         task_id_map = {}
-        for task_name, task in memory_tasks.items():
-            row = {
+        for task_name, day_name, task in memory_pairs:
+            key = (task_name, day_name)
+            task_row = {
                 "TaskName": task_name,
                 "DayCount": task.taskRecurrence,
                 "TaskStatus": "active" if task.taskDeadline == 1 else "pending",
             }
-            if task_name in existing_task_map:
-                task_id = existing_task_map[task_name]
-                supabase.table("Tasks").update(row).eq("TaskID", task_id).execute()
-            else:
-                result = supabase.table("Tasks").insert(row).execute()
-                task_id = result.data[0]["TaskID"]
-            task_id_map[task_name] = task_id
-
-        existing_recs = supabase.table("Recurrence").select("RecurrenceID, TaskID, Day").execute().data
-        existing_rec_map = {(r["TaskID"], r["Day"]): r["RecurrenceID"] for r in existing_recs}
-
-        memory_rec_keys = set()
-        for task_name, day_name, _ in memory_pairs:
-            tid = task_id_map.get(task_name)
-            if tid:
-                memory_rec_keys.add((tid, day_name))
-
-        for (tid, day), rec_id in list(existing_rec_map.items()):
-            if (tid, day) not in memory_rec_keys:
-                supabase.table("Recurrence").delete().eq("RecurrenceID", rec_id).execute()
-
-        for task_name, day_name, task in memory_pairs:
-            tid = task_id_map.get(task_name)
-            if not tid:
-                continue
-            event_type = EVENT_TAG_TO_TYPE.get(task.eventTag, "Task")
             rec_row = {
-                "TaskID": tid,
                 "TimeIn": mins_to_time_str(task.timeStart),
                 "TimeOut": mins_to_time_str(task.timeEnd),
                 "Day": day_name,
                 "Difficulty": task.taskDifficulty,
-                "TaskType": event_type,
+                "TaskType": EVENT_TAG_TO_TYPE.get(task.eventTag, "Task"),
                 "Priority": float(task.priority),
                 "Classification": str(task.timeFrame),
                 "RecurrenceStatus": "active",
             }
-            key = (tid, day_name)
-            if key in existing_rec_map:
-                supabase.table("Recurrence").update(rec_row).eq("RecurrenceID", existing_rec_map[key]).execute()
+            if key in existing_map:
+                tid, rec_id = existing_map[key]
+                supabase.table("Tasks").update(task_row).eq("TaskID", tid).execute()
+                supabase.table("Recurrence").update(rec_row).eq("RecurrenceID", rec_id).execute()
             else:
-                res = supabase.table("Recurrence").insert(rec_row).execute()
-                if res.data:
-                    existing_rec_map[key] = res.data[0]["RecurrenceID"]
+                res = supabase.table("Tasks").insert(task_row).execute()
+                tid = res.data[0]["TaskID"]
+                rec_row["TaskID"] = tid
+                supabase.table("Recurrence").insert(rec_row).execute()
+            task_id_map[key] = tid
 
+        # Save subtasks — each TaskID is unique per task-day, so just delete+insert
         for task_name, day_name, task in memory_pairs:
-            tid = task_id_map.get(task_name)
+            tid = task_id_map.get((task_name, day_name))
             if not tid:
                 continue
-            rec_id = existing_rec_map.get((tid, day_name))
-            if not rec_id:
-                continue
-            supabase.table("Subtasks").delete().eq("RecurrenceID", rec_id).execute()
+            supabase.table("Subtasks").delete().eq("TaskID", tid).execute()
             for sub in task.subTasks:
                 supabase.table("Subtasks").insert({
-                    "RecurrenceID": rec_id,
                     "TaskID": tid,
                     "SubtaskDay": day_name,
                     "Subtask": sub.name,
@@ -167,15 +149,11 @@ def load_tasks():
         ).execute()
 
         subs_result = supabase.table("Subtasks").select("*").execute()
-        subtasks_by_rec = {}
-        subtasks_by_key = {}
+        subtasks_by_tid = {}
         for s in subs_result.data:
-            rec_id = s.get("RecurrenceID")
-            if rec_id:
-                subtasks_by_rec.setdefault(rec_id, []).append(s)
-            else:
-                key = (s.get("TaskID"), s.get("SubtaskDay"))
-                subtasks_by_key.setdefault(key, []).append(s)
+            tid = s.get("TaskID")
+            if tid:
+                subtasks_by_tid.setdefault(tid, []).append(s)
 
         for rec in result.data:
             task_info = rec.get("Tasks") or {}
@@ -198,10 +176,8 @@ def load_tasks():
             day_name = rec.get("Day", "Monday")
             task.setValue("day", day_name)
 
-            rec_id = rec.get("RecurrenceID")
             tid = task_info.get("TaskID")
-            subs = subtasks_by_rec.get(rec_id, []) or subtasks_by_key.get((tid, day_name), [])
-            for s in subs:
+            for s in subtasks_by_tid.get(tid, []):
                 st_obj = subTask(
                     s.get("Subtask", "Subtask"),
                     s.get("SubtaskStatus") == "done"

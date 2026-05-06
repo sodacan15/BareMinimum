@@ -433,84 +433,101 @@ with st.sidebar:
 
 # ── Views ─────────────────────────────────────────────────────────────────────
 if st.session_state.current_view == 'planner':
-    sort_choice = st.selectbox(
-        "Sort", ["Priority", "Difficulty", "Time", "Status"],
-        label_visibility="collapsed"
-    )
-
-    st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-
     days_short = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
     days_full  = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     today_name = datetime.now().strftime("%A")
 
-    day_labels = []
-    for i, (ds, df) in enumerate(zip(days_short, days_full)):
-        cnt    = len(st.session_state.week_instance.days[i].tasks)
-        dot    = "● " if df == today_name else ""
-        suffix = f"·{cnt}" if cnt else ""
-        day_labels.append(f"{dot}{ds}{suffix}")
+    left_col, right_col = st.columns([2, 3])
 
-    day_tabs = st.tabs(day_labels)
+    with left_col:
+        sort_choice = st.selectbox(
+            "Sort", ["Priority", "Difficulty", "Time", "Status"],
+            label_visibility="collapsed"
+        )
+        st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
-    for i, (d_short, d_full) in enumerate(zip(days_short, days_full)):
-        day_obj = st.session_state.week_instance.days[i]
-        with day_tabs[i]:
-            tasks = list(day_obj.tasks)
-            sf = st.session_state.search_filter.lower()
-            if sf:
-                tasks = [t for t in tasks if sf in t.taskName.lower()]
+        day_labels = []
+        for i, (ds, df) in enumerate(zip(days_short, days_full)):
+            cnt    = len(st.session_state.week_instance.days[i].tasks)
+            dot    = "● " if df == today_name else ""
+            suffix = f"·{cnt}" if cnt else ""
+            day_labels.append(f"{dot}{ds}{suffix}")
 
-            if sort_choice == "Priority":   tasks.sort(key=lambda x: x.priority, reverse=True)
-            elif sort_choice == "Difficulty": tasks.sort(key=lambda x: x.taskDifficulty, reverse=True)
-            elif sort_choice == "Time":     tasks.sort(key=lambda x: x.timeStart)
-            elif sort_choice == "Status":   tasks.sort(key=lambda x: x.getProgress())
+        day_tabs = st.tabs(day_labels)
 
-            if not tasks:
-                st.markdown('<div style="color:#444;font-size:10px;padding:8px 0;">— empty —</div>', unsafe_allow_html=True)
+        for i, (d_short, d_full) in enumerate(zip(days_short, days_full)):
+            day_obj = st.session_state.week_instance.days[i]
+            with day_tabs[i]:
+                tasks = list(day_obj.tasks)
+                sf = st.session_state.search_filter.lower()
+                if sf:
+                    tasks = [t for t in tasks if sf in t.taskName.lower()]
+
+                if sort_choice == "Priority":     tasks.sort(key=lambda x: x.priority, reverse=True)
+                elif sort_choice == "Difficulty": tasks.sort(key=lambda x: x.taskDifficulty, reverse=True)
+                elif sort_choice == "Time":       tasks.sort(key=lambda x: x.timeStart)
+                elif sort_choice == "Status":     tasks.sort(key=lambda x: x.getProgress())
+
+                if not tasks:
+                    st.markdown('<div style="color:#444;font-size:10px;padding:8px 0;">— empty —</div>', unsafe_allow_html=True)
+                else:
+                    last_cat = None
+                    for t in tasks:
+                        cat = None
+                        if sort_choice == "Priority":
+                            cat = "HIGH" if t.priority >= 80 else ("MID" if t.priority >= 55 else "LOW")
+                        elif sort_choice == "Status":
+                            p = t.getProgress()
+                            cat = "DONE" if p == 100 else ("IN PROGRESS" if p > 0 else "TODO")
+
+                        if cat and cat != last_cat:
+                            st.markdown(f'<div class="label-text" style="color:#555;margin-top:8px;">{cat}</div>', unsafe_allow_html=True)
+                            last_cat = cat
+
+                        t_str    = mins_to_time(t.timeStart).strftime("%H:%M")
+                        prog     = t.getProgress()
+                        tag      = EVENT_TAGS.get(t.eventTag, "Task")
+                        is_sel   = st.session_state.selected_task_id == t.id
+
+                        rc1, rc2 = st.columns([6, 1])
+                        with rc1:
+                            label = f"{'▶' if not is_sel else '▷'} [{t_str}] {t.taskName}"
+                            if st.button(label, key=f"sel_{t.id}", use_container_width=True):
+                                st.session_state.selected_task_id = None if is_sel else t.id
+                                st.rerun()
+                        with rc2:
+                            if prog == 100:
+                                st.markdown('<span class="task-status-badge status-done" style="font-size:7px;">✓</span>', unsafe_allow_html=True)
+                            elif prog > 0:
+                                st.markdown(f'<span class="task-status-badge status-progress" style="font-size:7px;">{prog:.0f}%</span>', unsafe_allow_html=True)
+                            else:
+                                st.markdown(f'<span class="task-status-badge status-pending" style="font-size:7px;">{tag[:3].upper()}</span>', unsafe_allow_html=True)
+
+                st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+                if st.button(f"+ ADD TO {d_short}", key=f"add_{d_full}", use_container_width=True):
+                    add_new_task(day_obj)
+                    st.rerun()
+
+    with right_col:
+        if st.session_state.selected_task_id:
+            selected_task = None
+            for day in st.session_state.week_instance.days:
+                for t in day.tasks:
+                    if t.id == st.session_state.selected_task_id:
+                        selected_task = t
+                        break
+                if selected_task:
+                    break
+            if selected_task:
+                render_task_detail(selected_task)
             else:
-                last_cat = None
-                for t in tasks:
-                    # Category header
-                    cat = None
-                    if sort_choice == "Priority":
-                        cat = "HIGH" if t.priority >= 80 else ("MID" if t.priority >= 55 else "LOW")
-                    elif sort_choice == "Status":
-                        p = t.getProgress()
-                        cat = "DONE" if p == 100 else ("IN PROGRESS" if p > 0 else "TODO")
-
-                    if cat and cat != last_cat:
-                        st.markdown(f'<div class="label-text" style="color:#555;margin-top:8px;">{cat}</div>', unsafe_allow_html=True)
-                        last_cat = cat
-
-                    # Task row
-                    t_str   = mins_to_time(t.timeStart).strftime("%H:%M")
-                    prog    = t.getProgress()
-                    tag     = EVENT_TAGS.get(t.eventTag, "Task")
-                    is_open = st.session_state.selected_task_id == t.id
-
-                    rc1, rc2 = st.columns([6, 1])
-                    with rc1:
-                        label = f"{'▼' if is_open else '▶'} [{t_str}] {t.taskName}"
-                        if st.button(label, key=f"sel_{t.id}", use_container_width=True):
-                            st.session_state.selected_task_id = None if is_open else t.id
-                            st.rerun()
-                    with rc2:
-                        if prog == 100:
-                            st.markdown('<span class="task-status-badge status-done" style="font-size:7px;">✓</span>', unsafe_allow_html=True)
-                        elif prog > 0:
-                            st.markdown(f'<span class="task-status-badge status-progress" style="font-size:7px;">{prog:.0f}%</span>', unsafe_allow_html=True)
-                        else:
-                            st.markdown(f'<span class="task-status-badge status-pending" style="font-size:7px;">{tag[:3].upper()}</span>', unsafe_allow_html=True)
-
-                    # Inline detail
-                    if is_open:
-                        render_task_detail(t)
-
-            st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-            if st.button(f"+ ADD TO {d_short}", key=f"add_{d_full}", use_container_width=True):
-                add_new_task(day_obj)
-                st.rerun()
+                st.session_state.selected_task_id = None
+        else:
+            st.markdown(
+                '<div style="color:#333;font-size:10px;padding-top:4rem;text-align:center;">'
+                'select a task to edit</div>',
+                unsafe_allow_html=True
+            )
 
 
 elif st.session_state.current_view == 'timetable':

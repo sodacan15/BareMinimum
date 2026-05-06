@@ -256,15 +256,35 @@ def update_shortcut(shortcut_id, name, url):
             return save_shortcuts(shortcuts)
     return False
 
-# ==================== NOTES OPERATIONS (JSON) ====================
+# ==================== NOTES OPERATIONS (Supabase + JSON fallback) ====================
 
 def save_notes(task_notes):
+    if supabase:
+        try:
+            for task_name, note_text in task_notes.items():
+                supabase.table("AppSettings").upsert({
+                    "Key": f"note_{task_name}",
+                    "Value": note_text
+                }).execute()
+            return True
+        except Exception:
+            pass
     return save_json("data/notes.json", {
         "task_notes": task_notes,
         "last_updated": datetime.now().isoformat()
     })
 
 def load_notes():
+    if supabase:
+        try:
+            result = supabase.table("AppSettings").select("Key,Value").like("Key", "note_%").execute()
+            notes = {}
+            for row in result.data:
+                task_name = row["Key"][5:]
+                notes[task_name] = row.get("Value", "")
+            return notes
+        except Exception:
+            pass
     data = load_json("data/notes.json", default={"task_notes": {}})
     return data.get("task_notes", {})
 
@@ -280,15 +300,31 @@ def load_settings():
         "auto_save": True
     })
 
-# ==================== HANDBOOK OPERATIONS (JSON) ====================
+# ==================== HANDBOOK OPERATIONS (Supabase + JSON fallback) ====================
 
 def save_handbook_notes(notes):
+    if supabase:
+        try:
+            supabase.table("AppSettings").upsert({
+                "Key": "handbook",
+                "Value": notes
+            }).execute()
+            return True
+        except Exception:
+            pass
     return save_json("data/handbook_notes.json", {
         "notes": notes,
         "last_updated": datetime.now().isoformat()
     })
 
 def load_handbook_notes():
+    if supabase:
+        try:
+            result = supabase.table("AppSettings").select("Value").eq("Key", "handbook").execute()
+            if result.data:
+                return result.data[0].get("Value", "")
+        except Exception:
+            pass
     data = load_json("data/handbook_notes.json", default={"notes": ""})
     return data.get("notes", "")
 

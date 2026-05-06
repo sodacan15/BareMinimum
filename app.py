@@ -437,7 +437,7 @@ if st.session_state.current_view == 'planner':
     days_full  = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     today_name = datetime.now().strftime("%A")
 
-    left_col, right_col = st.columns([2, 3])
+    left_col, right_col = st.columns([1, 1])
 
     with left_col:
         sort_choice = st.selectbox(

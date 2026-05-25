@@ -63,6 +63,18 @@ def time_str_to_mins(time_str):
 
 import json as _json
 
+def save_subtasks_only(week_instance):
+    """Save only subtasks — fast path that doesn't touch Tasks/Recurrence tables."""
+    subtask_data = {}
+    for day in week_instance.days:
+        for task in day.tasks:
+            sk = f"{task.taskName}_{day.name}"
+            subtask_data[sk] = [
+                {"name": sub.name, "status": sub.status}
+                for sub in task.subTasks
+            ]
+    _save_subtasks_to_db(subtask_data)
+
 def _save_subtasks_to_db(subtask_data):
     """Save all subtasks to AppSettings table as JSON, fall back to local JSON."""
     if supabase:
@@ -100,7 +112,9 @@ def _load_subtasks_from_db():
 # ==================== TASK OPERATIONS (Supabase) ====================
 
 def save_tasks(week_instance):
-    """Save all tasks to Supabase. Each task-day combo has its own TaskID."""
+    """Save all tasks to Supabase. Subtasks always saved regardless of Supabase result."""
+    # Always save subtasks first — independent of Tasks/Recurrence table success
+    save_subtasks_only(week_instance)
     try:
         memory_pairs = []
         for day in week_instance.days:

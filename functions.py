@@ -120,20 +120,24 @@ def save_tasks(week_instance):
                 supabase.table("Recurrence").insert(rec_row).execute()
             task_id_map[key] = tid
 
-        # Save subtasks — each TaskID is unique per task-day, so just delete+insert
+        # Save subtasks — delete existing then insert all for this task-day
         for task_name, day_name, task in memory_pairs:
             tid = task_id_map.get((task_name, day_name))
             if not tid:
                 continue
             supabase.table("Subtasks").delete().eq("TaskID", tid).execute()
             for sub in task.subTasks:
-                supabase.table("Subtasks").insert({
-                    "TaskID": tid,
-                    "SubtaskDay": day_name,
-                    "Subtask": sub.name,
-                    "TimeAllotment": 0,
-                    "SubtaskStatus": "done" if sub.status else "pending",
-                }).execute()
+                try:
+                    supabase.table("Subtasks").insert({
+                        "TaskID": tid,
+                        "SubtaskDay": day_name,
+                        "Subtask": sub.name,
+                        "TimeAllotment": 0,
+                        "SubtaskStatus": "done" if sub.status else "pending",
+                    }).execute()
+                except Exception as sub_err:
+                    print(f"[Subtask save error] Task={task_name} Day={day_name} Sub={sub.name}: {sub_err}")
+                    print("Hint: run this in Supabase SQL Editor to fix: ALTER TABLE \"Subtasks\" DROP CONSTRAINT IF EXISTS \"Subtasks_Day_key\";")
 
         return True
     except Exception as e:
@@ -327,6 +331,14 @@ def load_handbook_notes():
             pass
     data = load_json("data/handbook_notes.json", default={"notes": ""})
     return data.get("notes", "")
+
+# ==================== TEMPLATE OPERATIONS (JSON) ====================
+
+def save_templates(templates):
+    return save_json("data/templates.json", templates)
+
+def load_templates():
+    return load_json("data/templates.json", default={})
 
 # ==================== BACKUP OPERATIONS ====================
 

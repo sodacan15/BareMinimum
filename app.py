@@ -419,6 +419,7 @@ def _render_instance(inst, d_name, task_key, rec_days):
     )
 
     to_remove = []
+    subtask_changed = False
     for i, sub in enumerate(inst.subTasks):
         sk = f"{inst.id}_{sub.id}_{d_name}_{i}"
         c1, c2, c3 = st.columns([1, 8, 1])
@@ -426,17 +427,23 @@ def _render_instance(inst, d_name, task_key, rec_days):
             done = st.checkbox("", value=sub.status, key=f"sd_{sk}", label_visibility="collapsed")
             if done != sub.status:
                 sub.markDone() if done else sub.markUndone()
+                subtask_changed = True
         with c2:
             new_sn = st.text_input("", value=sub.name, key=f"st_{sk}", label_visibility="collapsed")
             if new_sn != sub.name:
                 sub.name = new_sn
+                subtask_changed = True
         with c3:
             if st.button("×", key=f"ds_{sk}"):
                 to_remove.append(sub)
 
+    if subtask_changed:
+        fn.save_subtasks_only(st.session_state.week_instance)
+
     if to_remove:
         for sub in to_remove:
             inst.removeSubTask(sub)
+        fn.save_subtasks_only(st.session_state.week_instance)
         fn.save_tasks(st.session_state.week_instance)
         st.rerun()
 

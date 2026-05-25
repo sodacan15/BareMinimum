@@ -59,6 +59,44 @@ def time_str_to_mins(time_str):
     except Exception:
         return 0
 
+# ==================== SUBTASK DB HELPERS (AppSettings) ====================
+
+import json as _json
+
+def _save_subtasks_to_db(subtask_data):
+    """Save all subtasks to AppSettings table as JSON, fall back to local JSON."""
+    if supabase:
+        try:
+            rows = [
+                {"Key": f"subtasks_{k}", "Value": _json.dumps(v)}
+                for k, v in subtask_data.items()
+            ]
+            if rows:
+                supabase.table("AppSettings").upsert(rows).execute()
+            # mirror to local as backup
+            save_json("data/subtasks.json", subtask_data)
+            return True
+        except Exception:
+            pass
+    save_json("data/subtasks.json", subtask_data)
+
+def _load_subtasks_from_db():
+    """Load subtasks from AppSettings table, fall back to local JSON."""
+    if supabase:
+        try:
+            result = supabase.table("AppSettings").select("Key,Value").like("Key", "subtasks_%").execute()
+            data = {}
+            for row in result.data:
+                k = row["Key"][9:]   # strip "subtasks_" prefix
+                try:
+                    data[k] = _json.loads(row.get("Value") or "[]")
+                except Exception:
+                    data[k] = []
+            return data
+        except Exception:
+            pass
+    return load_json("data/subtasks.json", default={})
+
 # ==================== TASK OPERATIONS (Supabase) ====================
 
 def save_tasks(week_instance):
@@ -120,24 +158,15 @@ def save_tasks(week_instance):
                 supabase.table("Recurrence").insert(rec_row).execute()
             task_id_map[key] = tid
 
-        # Save subtasks — delete existing then insert all for this task-day
+        # Save subtasks to AppSettings (avoids broken Subtasks table constraints)
+        subtask_data = {}
         for task_name, day_name, task in memory_pairs:
-            tid = task_id_map.get((task_name, day_name))
-            if not tid:
-                continue
-            supabase.table("Subtasks").delete().eq("TaskID", tid).execute()
-            for sub in task.subTasks:
-                try:
-                    supabase.table("Subtasks").insert({
-                        "TaskID": tid,
-                        "SubtaskDay": day_name,
-                        "Subtask": sub.name,
-                        "TimeAllotment": 0,
-                        "SubtaskStatus": "done" if sub.status else "pending",
-                    }).execute()
-                except Exception as sub_err:
-                    print(f"[Subtask save error] Task={task_name} Day={day_name} Sub={sub.name}: {sub_err}")
-                    print("Hint: run this in Supabase SQL Editor to fix: ALTER TABLE \"Subtasks\" DROP CONSTRAINT IF EXISTS \"Subtasks_Day_key\";")
+            sk = f"{task_name}_{day_name}"
+            subtask_data[sk] = [
+                {"name": sub.name, "status": sub.status}
+                for sub in task.subTasks
+            ]
+        _save_subtasks_to_db(subtask_data)
 
         return True
     except Exception as e:
@@ -152,12 +181,8 @@ def load_tasks():
             "*, Tasks(TaskID, TaskName, DayCount, TaskStatus)"
         ).execute()
 
-        subs_result = supabase.table("Subtasks").select("*").execute()
-        subtasks_by_tid = {}
-        for s in subs_result.data:
-            tid = s.get("TaskID")
-            if tid:
-                subtasks_by_tid.setdefault(tid, []).append(s)
+        # Load subtasks from AppSettings (falls back to local JSON)
+        subtask_data = _load_subtasks_from_db()
 
         for rec in result.data:
             task_info = rec.get("Tasks") or {}
@@ -180,13 +205,9 @@ def load_tasks():
             day_name = rec.get("Day", "Monday")
             task.setValue("day", day_name)
 
-            tid = task_info.get("TaskID")
-            for s in subtasks_by_tid.get(tid, []):
-                st_obj = subTask(
-                    s.get("Subtask", "Subtask"),
-                    s.get("SubtaskStatus") == "done"
-                )
-                task.addSubTask(st_obj)
+            json_key = f"{task_info.get('TaskName', '')}_{day_name}"
+            for s in subtask_data.get(json_key, []):
+                task.addSubTask(subTask(s.get("name", "Subtask"), s.get("status", False)))
 
             task.setPriority()
             week_instance.addTaskToDay(task, day_name)
